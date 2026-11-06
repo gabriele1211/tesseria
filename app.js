@@ -71,11 +71,11 @@ function monitorPhoto(){
   const v=$('photoCameraVideo');if(!v.videoWidth||photoCaptureBusy||$('photoCameraModal').hidden)return;
   try{
    const q=photoFrameQuality(v);
-   const ready=q.shape&&q.contrast>35&&q.motion<15;
+   const ready=q.motion<16&&Math.abs(q.contrast)>12;
    photoStable=ready?photoStable+1:0;
-   $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=2);
-   $('photoCameraStatus').textContent=photoStable>=2?'Bordi rilevati · acquisizione automatica…':q.shape?'Bordi individuati: tieni fermo il telefono.':'Cerco i quattro bordi della tessera. Su sfondi simili o tessere scure usa Scatta foto.';
-   if(photoStable>=5)capturePhoto();
+   $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=3);
+   $('photoCameraStatus').textContent=photoStable>=2?'Immagine stabile · acquisizione automatica…':'Centra la tessera nella cornice e tieni fermo il telefono.';
+   if(photoStable>=7)capturePhoto();
   }catch(err){stopPhotoMonitor();$('photoCameraStatus').textContent='Rilevamento automatico non disponibile: usa Scatta foto.'}
  },300);
 }
