@@ -21,3 +21,5 @@
 
 /* Linea di scansione animata: indicatore visivo, non sostituisce il riconoscimento */
 .scanner-target span{top:8%;animation:tesseria-scan-sweep 2.4s ease-in-out infinite;will-change:top}@keyframes tesseria-scan-sweep{0%,100%{top:8%}50%{top:92%}}@media(prefers-reduced-motion:reduce){.scanner-target span{animation:none;top:50%}}
+
+.photo-capture-label{display:block}.photo-capture-help{display:block;font-size:13px;font-weight:400;color:#62758c;margin:5px 0 10px}.photo-capture-button{display:inline-flex;align-items:center;justify-content:center;border-radius:11px;padding:12px 16px;background:#165a9f;color:#fff;font-weight:700;cursor:pointer}.photo-capture-label input[type=file]{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip-path:inset(50%)}.photo-capture-label:focus-within .photo-capture-button{outline:3px solid #ffb82d}@media(prefers-color-scheme:dark){.photo-capture-help{color:#a4b6c9}}
