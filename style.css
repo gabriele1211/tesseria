@@ -81,3 +81,11 @@ body.scanner-open{overflow:hidden}
 #confirmCrop{margin-left:auto;order:2}
 #cancelCrop{order:1}
 #removePhoto{display:flex;margin-left:auto;margin-right:0}
+
+/* v1.0.23: fotocamera integrata con guida tessera */
+.photo-camera-frame{position:relative;width:100%;aspect-ratio:1.586;overflow:hidden;background:#070d15;border-radius:12px}
+.photo-camera-frame video{width:100%;height:100%;object-fit:cover;display:block}
+.photo-camera-guide{position:absolute;inset:7%;border:3px solid #ffcf4a;border-radius:12px;box-shadow:0 0 0 100vmax #0005;pointer-events:none}
+.photo-camera-guide:after{content:'';position:absolute;inset:9px;border:1px dashed #fff9;border-radius:5px}
+.photo-capture-label{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.photo-capture-button{border:0;background:#195eaa;color:white;border-radius:12px;padding:13px 18px;font-size:15px;font-weight:700;cursor:pointer}
