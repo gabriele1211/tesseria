@@ -89,3 +89,5 @@ body.scanner-open{overflow:hidden}
 .photo-camera-guide:after{content:'';position:absolute;inset:9px;border:1px dashed #fff9;border-radius:5px}
 .photo-capture-label{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .photo-capture-button{border:0;background:#195eaa;color:white;border-radius:12px;padding:13px 18px;font-size:15px;font-weight:700;cursor:pointer}
+
+#retryOcr{margin:4px 0 12px;min-height:40px;font-size:13px}
