@@ -55,3 +55,7 @@ body.scanner-open{overflow:hidden}
 #html5Reader video{width:100%!important;height:100%!important;object-fit:cover!important;max-height:none!important;border-radius:0!important}
 #html5Reader img,#html5Reader canvas{max-width:100%}
 #html5Reader__dashboard,#html5Reader__scan_region img{display:none!important}
+
+/* Il video legacy resta nascosto: non nascondere il contenitore html5-qrcode */
+.scanner-panel .scanner-frame:has(video[hidden]){display:block}
+.scanner-panel .scanner-frame{aspect-ratio:16/9}
