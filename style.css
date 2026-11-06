@@ -91,3 +91,5 @@ body.scanner-open{overflow:hidden}
 .photo-capture-button{border:0;background:#195eaa;color:white;border-radius:12px;padding:13px 18px;font-size:15px;font-weight:700;cursor:pointer}
 
 #retryOcr{margin:4px 0 12px;min-height:40px;font-size:13px}
+
+.photo-camera-frame.photo-ready .photo-camera-guide{border-color:#3be58c;box-shadow:0 0 0 100vmax #0004,0 0 16px #3be58c}
