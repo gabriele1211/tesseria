@@ -27,8 +27,11 @@ $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.s
 let zxingReader=null,scanToken=0,ean8Evidence=new Map();
 const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
 function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message;}
-function stopCamera(){ean8Evidence.clear();scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
+function stopCamera(){const modal=$('scannerModal');if(modal&&!modal.hidden){modal.hidden=true;document.body.classList.remove('scanner-open')}ean8Evidence.clear();scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
 $('stopCamera').onclick=stopCamera;
+$('scannerDone').onclick=stopCamera;
+$('scannerModal').addEventListener('click',e=>{if(e.target===$('scannerModal'))stopCamera()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('scannerModal').hidden)stopCamera()});
 function validatedCandidate(format,value){
  const normalized=String(value||'').trim(),fmt=String(format||'').toUpperCase();
  if(fmt==='EAN_13'||fmt==='EAN13'||fmt==='EAN_8'||fmt==='EAN8'){
@@ -114,6 +117,7 @@ function scanErrorMessage(error){
 }
 $('scan').onclick=async()=>{
  if(scanning)return;
+ $('scannerModal').hidden=false;document.body.classList.add('scanner-open');
  if(!navigator.mediaDevices?.getUserMedia){$('scanMessage').textContent='Fotocamera non disponibile: usa Safari o Chrome con connessione HTTPS.';return}
  ean8Evidence.clear();const token=++scanToken;
  scannerStatus('Avvio scanner…');
