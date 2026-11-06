@@ -306,12 +306,39 @@ load();show('home');
  const guide=$('setupGuide'),cameraText=$('cameraGuideText'),cameraResult=$('cameraGuideResult'),installText=$('installGuideText'),installBtn=$('installPwa');
  const ua=navigator.userAgent||'',ios=/iPhone|iPad|iPod/.test(ua),android=/Android/.test(ua),standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
  let installPrompt=null;
+ const banner=$('installBanner'),bannerText=$('installBannerText'),bannerAction=$('installBannerAction');
+ const dismissalKey='tesseria.installBanner.dismissedUntil';
+ function bannerDismissed(){try{return Number(localStorage.getItem(dismissalKey)||0)>Date.now()}catch{return false}}
+ function hideInstallBanner(){banner.hidden=true}
+ function showInstallBanner(){
+  if(standalone||bannerDismissed()){hideInstallBanner();return}
+  if(ios){
+   bannerText.textContent='Su iPhone: apri Tesseria in Safari, tocca Condividi (quadrato con freccia), poi Aggiungi alla schermata Home e conferma con Aggiungi.';
+   bannerAction.textContent='Mostra procedura';
+  }else if(android){
+   bannerText.textContent='Su Android: apri Tesseria in Chrome, tocca ⋮ e scegli Installa app oppure Aggiungi a schermata Home.';
+   bannerAction.textContent=installPrompt?'Installa ora':'Mostra procedura';
+  }else{
+   bannerText.textContent='Aggiungi Tesseria alla schermata Home dal menu del browser per aprirla come un’app.';
+   bannerAction.textContent=installPrompt?'Installa ora':'Mostra procedura';
+  }
+  banner.hidden=false;
+ }
+ bannerAction.onclick=()=>{
+  if(installPrompt){installBtn.click();return}
+  openGuide();hideInstallBanner();
+ };
+ $('installBannerDismiss').onclick=()=>{
+  try{localStorage.setItem(dismissalKey,String(Date.now()+7*24*60*60*1000))}catch{}
+  hideInstallBanner();
+ };
+ showInstallBanner();
  function openGuide(){document.querySelectorAll('main > section').forEach(s=>s.hidden=true);guide.hidden=false;window.scrollTo(0,0)}
  $('openGuide').onclick=openGuide;
  $('finishGuide').onclick=()=>show('home');
- window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;installBtn.hidden=false;installText.textContent='Premi Installa applicazione per aggiungere Tesseria alla schermata Home.'});
- installBtn.onclick=async()=>{if(!installPrompt)return;installPrompt.prompt();try{await installPrompt.userChoice}catch{}installPrompt=null;installBtn.hidden=true};
- window.addEventListener('appinstalled',()=>{installText.textContent='Tesseria installata sulla schermata Home.';installBtn.hidden=true});
+ window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;installBtn.hidden=false;installText.textContent='Premi Installa applicazione per aggiungere Tesseria alla schermata Home.';showInstallBanner()});
+ installBtn.onclick=async()=>{if(!installPrompt)return;installPrompt.prompt();try{await installPrompt.userChoice}catch{}installPrompt=null;installBtn.hidden=true;showInstallBanner()};
+ window.addEventListener('appinstalled',()=>{installText.textContent='Tesseria installata sulla schermata Home.';installBtn.hidden=true;hideInstallBanner()});
  if(standalone){installText.textContent='Tesseria è già installata sulla schermata Home.'}
  else if(ios){installText.textContent='In Safari tocca Condividi (quadrato con freccia) e scegli Aggiungi alla schermata Home. Se usi un altro browser, apri prima il sito in Safari.'}
  else if(android){installText.textContent='In Chrome apri il menu ⋮ e scegli Installa app oppure Aggiungi a schermata Home.'}
