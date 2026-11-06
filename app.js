@@ -15,10 +15,55 @@ const c39={0:'101001101101',1:'110100101011',2:'101100101011',3:'110110010101',4
 const itfA=['00110','10001','01001','11000','00101','10100','01100','00011','10010','01010'];
 function checkEAN(v){let s=0;for(let i=v.length-2,k=0;i>=0;i--,k++)s+=Number(v[i])*(k%2===0?3:1);return (10-s%10)%10===Number(v.at(-1))}
 function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!/^\d{13}$/.test(v)||!checkEAN(v))throw Error('EAN-13: servono 13 cifre con cifra di controllo valida');let bits='101';for(let i=1;i<7;i++)bits+=(parity[Number(v[0])][i-1]==='L'?eanL:eanG)[Number(v[i])];bits+='01010';for(let i=7;i<13;i++)bits+=eanR[Number(v[i])];return bits+'101'}if(fmt==='EAN8'){if(!/^\d{8}$/.test(v)||!checkEAN(v))throw Error('EAN-8: servono 8 cifre con cifra di controllo valida');return '101'+[...v.slice(0,4)].map(n=>eanL[+n]).join('')+'01010'+[...v.slice(4)].map(n=>eanR[+n]).join('')+'101'}if(fmt==='CODE39'){if(!v||[...v].some(ch=>!c39[ch]||ch==='*'))throw Error('Code 39: caratteri non supportati');return '*'+v+'*'}if(fmt==='ITF'){if(!/^\d+$/.test(v)||v.length%2)throw Error('ITF: è richiesto un numero pari di cifre');let bits='1010';for(let i=0;i<v.length;i+=2){let a=itfA[+v[i]],b=itfA[+v[i+1]];for(let j=0;j<5;j++)bits+=(a[j]==='1'?'111':'1')+(b[j]==='1'?'000':'0')}return bits+'11101'}throw Error('Formato non supportato')}
-function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 115`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 115`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','8');r.setAttribute('width',w);r.setAttribute('height','94');r.setAttribute('fill','#000');svg.append(r)}}
+function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
-$('frontPhoto').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{photoDraft=await TesseriaPhotos.compress(f);photoRemove=false;$('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false}catch(err){toast(err.message);e.target.value=''}};
+let pendingPhoto=null;
+$('frontPhoto').onchange=async e=>{
+ const f=e.target.files[0];if(!f)return;
+ try{
+  if(!f.type.startsWith('image/'))throw Error('Seleziona una fotografia');
+  pendingPhoto=await TesseriaPhotos.compress(f);
+  $('cropSource').src=pendingPhoto;$('cropModal').hidden=false;
+  $('cropZoom').value='100';$('cropX').value='50';$('cropY').value='50';
+  updateCropPreview();
+ }catch(err){toast(err.message);e.target.value=''}
+};
+function updateCropPreview(){
+ const img=$('cropSource'),zoom=Number($('cropZoom').value)/100;
+ img.style.transform='translate('+(50-Number($('cropX').value))*0.7+'%, '+(50-Number($('cropY').value))*0.7+'%) scale('+zoom+')';
+}
+['cropZoom','cropX','cropY'].forEach(id=>$(id).addEventListener('input',updateCropPreview));
+$('cancelCrop').onclick=()=>{$('cropModal').hidden=true;pendingPhoto=null;$('frontPhoto').value=''};
+$('confirmCrop').onclick=async()=>{
+ if(!pendingPhoto)return;
+ const img=new Image();img.src=pendingPhoto;await img.decode();
+ const ratio=1.586,zoom=Number($('cropZoom').value)/100;
+ const baseW=Math.min(img.width,img.height*ratio),baseH=baseW/ratio;
+ const w=baseW/zoom,h=baseH/zoom;
+ const cx=w/2+(img.width-w)*Number($('cropX').value)/100;
+ const cy=h/2+(img.height-h)*Number($('cropY').value)/100;
+ const canvas=document.createElement('canvas');canvas.width=960;canvas.height=Math.round(960/ratio);
+ canvas.getContext('2d').drawImage(img,Math.max(0,Math.min(img.width-w,cx-w/2)),Math.max(0,Math.min(img.height-h,cy-h/2)),w,h,0,0,canvas.width,canvas.height);
+ photoDraft=canvas.toDataURL('image/jpeg',.86);photoRemove=false;
+ $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;
+ $('cropModal').hidden=true;pendingPhoto=null;
+ if(!$('name').value.trim())recognizePhotoName(photoDraft);
+};
+async function recognizePhotoName(src){
+ const status=$('photoOcrStatus');status.textContent='Ricerca del nome sulla tessera…';
+ try{
+  if(!window.Tesseract){
+   await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=resolve;s.onerror=reject;document.head.append(s)});
+  }
+  const result=await window.Tesseract.recognize(src,'ita+eng',{logger:()=>{}});
+  const lines=String(result?.data?.text||'').split(/\\n/).map(x=>x.trim()).filter(x=>x.length>=3&&/[A-Za-zÀ-ÿ]/.test(x));
+  const suggestion=lines.slice(0,2).join(' ').replace(/[^\\p{L}\\p{N} &'’-]/gu,'').slice(0,80).trim();
+  if(suggestion&&!$('name').value.trim()){$('name').value=suggestion;status.textContent='Nome suggerito dalla foto: controllalo e correggilo se necessario.'}
+  else status.textContent='Nome non individuato: inseriscilo manualmente.';
+ }catch{status.textContent='Riconoscimento testo non disponibile: inserisci il nome manualmente.'}
+}
+
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
 $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(),number=$('number').value.trim().toUpperCase(),format=$('format').value;try{encode(format,number)}catch(err){toast(err.message);return}if(!name)return toast('Inserisci un nome');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
 $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').onclick=()=>{if(confirm('Eliminare definitivamente questa tessera?')){cards=cards.filter(c=>c.id!==current);if(save()){TesseriaPhotos.del(current).catch(()=>{});show('home')}}};$('rotate').onclick=()=>$('detail').classList.toggle('rotated');
