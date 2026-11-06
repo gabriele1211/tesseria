@@ -28,7 +28,7 @@ let zxingReader=null,scanToken=0;
 const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
 function stopCamera(){scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
 $('stopCamera').onclick=stopCamera;
-function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch{return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Codice acquisito: controlla il numero e salva la tessera.';toast('Codice acquisito');return true}
+function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch(err){$('scanMessage').textContent='Codice individuato ma formato non riproducibile: '+fmt+'. Inserisci il numero manualmente.';return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Codice acquisito: controlla il numero e salva la tessera.';toast('Codice acquisito');return true}
 function loadZXing(){if(window.ZXing?.BrowserMultiFormatReader)return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector('script[data-zxing]');if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria scanner non disponibile')),{once:true});return}const s=document.createElement('script');s.src=ZXING_URL;s.dataset.zxing='1';s.onload=resolve;s.onerror=()=>reject(Error('Impossibile caricare lo scanner: serve una connessione Internet al primo utilizzo'));document.head.append(s)})}
 async function scanNative(video,token){
  let detector;
@@ -42,19 +42,30 @@ async function scanNative(video,token){
 }
 async function scanZXing(video,token){
  await loadZXing();if(!scanning||token!==scanToken)return;
- const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Motore di scansione non disponibile');
+ const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Lettore codici non disponibile');
  const formats=[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.ITF];
- const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,formats]]);
- const reader=new ZXing.BrowserMultiFormatReader(hints,350);zxingReader=reader;
- $('scanMessage').textContent='Inquadra il codice. Tieni ferma la tessera e attendi.';
- const onResult=(result,error)=>{if(!scanning||token!==scanToken||!result)return;const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];acceptScan(fmt,result.getText())};
+ const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,formats],[ZXing.DecodeHintType.TRY_HARDER,true]]);
+ const reader=new ZXing.BrowserMultiFormatReader(hints,250);zxingReader=reader;
+ $('scanMessage').textContent='Lettore attivo. Avvicina lentamente il codice, tenendolo orizzontale.';
+ let attempts=0;
+ const onResult=(result,error)=>{
+  if(!scanning||token!==scanToken)return;
+  if(result){
+   const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];
+   if(!acceptScan(fmt,result.getText()))$('scanMessage').textContent='Codice rilevato ('+fmt+'), ma non riproducibile. Prova un’altra tessera.';
+   return;
+  }
+  attempts++;
+  if(attempts===25)$('scanMessage').textContent='Lettore attivo, nessun codice riconosciuto. Riempi la cornice con tutte le barre.';
+  if(error&&attempts%50===0&&error.name!=='NotFoundException'&&error.name!=='ChecksumException'&&error.name!=='FormatException'){
+   $('scanMessage').textContent='Lettore attivo, verifica in corso. '+String(error.name||'').slice(0,40);
+  }
+ };
  if(typeof reader.decodeFromVideoElementContinuously==='function'){
   await reader.decodeFromVideoElementContinuously(video,onResult);
  }else if(typeof reader.decodeFromVideoElement==='function'){
-  const result=await reader.decodeFromVideoElement(video);if(result)onResult(result,null);
- }else{
-  throw Error('La libreria scanner non è compatibile con questo browser');
- }
+  while(scanning&&token===scanToken){try{const result=await reader.decodeFromVideoElement(video);onResult(result,null)}catch(err){onResult(null,err);await new Promise(r=>setTimeout(r,200))}}
+ }else throw Error('Il motore di scansione non è compatibile');
 }
 function scanErrorMessage(error){
  const name=error?.name||'',message=String(error?.message||'');
