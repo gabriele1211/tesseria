@@ -63,11 +63,20 @@ async function scanZXing(video,token){
    $('scanMessage').textContent='Lettore attivo, verifica in corso. '+String(error.name||'').slice(0,40);
   }
  };
- if(typeof reader.decodeFromVideoElementContinuously==='function'){
+ if(typeof reader.decodeFromVideoDevice==='function'){
+  // La libreria gestisce direttamente il flusso video e i callback di decodifica.
+  // Rilascia la precedente acquisizione per evitare due stream concorrenti su iOS.
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  video.pause();video.srcObject=null;
+  scannerStatus('Collegamento lettore alla fotocamera…');
+  await reader.decodeFromVideoDevice(undefined,video,onResult);
+  if(scanning&&token===scanToken)scannerStatus('Lettore collegato · ricerca codici in corso');
+ }else if(typeof reader.decodeFromVideoElementContinuously==='function'){
   await reader.decodeFromVideoElementContinuously(video,onResult);
- }else if(typeof reader.decodeFromVideoElement==='function'){
-  while(scanning&&token===scanToken){try{const result=await reader.decodeFromVideoElement(video);onResult(result,null)}catch(err){onResult(null,err);await new Promise(r=>setTimeout(r,200))}}
- }else throw Error('Il motore di scansione non è compatibile');
+ }else throw Error('Il motore di scansione non supporta il video');
+ if(scanning&&token===scanToken){
+  setTimeout(()=>{if(scanning&&token===scanToken&&attempts===0)scannerStatus('Nessun fotogramma elaborato dal lettore. Verifica il motore video.');},5500);
+ }
 }
 function scanErrorMessage(error){
  const name=error?.name||'',message=String(error?.message||'');
