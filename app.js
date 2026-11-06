@@ -6,7 +6,7 @@ function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'[]');cards=Ar
 function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}catch{toast('Impossibile salvare: memoria del browser non disponibile');return false}}
 function show(id){stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
 function render(){const root=$('cards');root.replaceChildren();const q=$('search').value.trim().toLocaleLowerCase('it');let matches=cards.filter(c=>c.name.toLocaleLowerCase('it').includes(q));$('empty').hidden=matches.length>0;for(const c of matches){const b=document.createElement('button');b.className='card';const label=document.createElement('span');const name=document.createElement('strong');name.textContent=c.name;const number=document.createElement('small');number.textContent=c.number;label.append(name,number);const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';b.append(label,arrow);b.onclick=()=>detail(c.id);root.append(b)}}
-async function openEditor(c=null){editId=c?.id||null;photoDraft=null;photoRemove=false;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true;if(c){try{const p=await TesseriaPhotos.get(c.id);if(p){$('photoPreview').src=p;$('photoPreview').hidden=false;$('removePhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}}$('editorTitle').textContent=c?'Modifica tessera':'Nuova tessera';$('name').value=c?.name||'';$('number').value=c?.number||'';$('format').value=c?.format||'EAN13';$('scanMessage').textContent='';show('editor')}
+async function openEditor(c=null){editId=c?.id||null;photoDraft=null;photoRemove=false;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true;$('retryOcr').hidden=true;if(c){try{const p=await TesseriaPhotos.get(c.id);if(p){$('photoPreview').src=p;$('photoPreview').hidden=false;$('removePhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}}$('editorTitle').textContent=c?'Modifica tessera':'Nuova tessera';$('name').value=c?.name||'';$('number').value=c?.number||'';$('format').value=c?.format||'EAN13';$('scanMessage').textContent='';show('editor')}
 const eanL=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
 const eanG=['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
 const eanR=['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
@@ -102,23 +102,72 @@ $('confirmCrop').onclick=async()=>{
  const source=$('cropCanvas'),canvas=document.createElement('canvas');canvas.width=960;canvas.height=Math.round(960/1.586);
  canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);
  photoDraft=canvas.toDataURL('image/jpeg',.86);photoRemove=false;
- $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;
+ $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;$('retryOcr').hidden=false;
  $('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value='';
  if(!$('name').value.trim())recognizePhotoName(photoDraft);
 };
+let ocrBusy=false;
+function enhanceOcrImage(src){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();img.onload=()=>{
+   const canvas=document.createElement('canvas'),scale=Math.min(2,2000/Math.max(img.width,img.height));
+   canvas.width=Math.round(img.width*scale);canvas.height=Math.round(img.height*scale);
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,canvas.width,canvas.height);
+   const frame=ctx.getImageData(0,0,canvas.width,canvas.height),p=frame.data;
+   for(let i=0;i<p.length;i+=4){
+    const lum=.299*p[i]+.587*p[i+1]+.114*p[i+2];
+    const v=Math.max(0,Math.min(255,(lum-128)*1.6+146));
+    p[i]=p[i+1]=p[i+2]=v;
+   }
+   ctx.putImageData(frame,0,0);resolve(canvas.toDataURL('image/png'));
+  };img.onerror=reject;img.src=src;
+ });
+}
+function selectMerchantName(data){
+ const lines=Array.isArray(data?.lines)?data.lines:[];
+ const entries=lines.map(l=>({text:String(l.text||'').replace(/[^\\p{L}\\p{N} &'’.-]/gu,' ').replace(/\\s+/g,' ').trim(),confidence:Number(l.confidence)||0}))
+  .filter(l=>l.text.length>=3&&/[A-Za-zÀ-ÿ]{3}/.test(l.text)&&!/^\\d+$/.test(l.text));
+ const noise=/^(www\\.|https?:|tel\\.|telefono|telefono:|email|partita iva|p\\.?iva|codice|tessera|card|fidelity|punti|scadenza)/i;
+ const candidates=entries.filter(l=>!noise.test(l.text)).map((l,i)=>({...l,score:l.confidence+Math.min(l.text.length,25)*.45-Math.min(i,5)*2}));
+ candidates.sort((a,b)=>b.score-a.score);
+ if(!candidates.length)return '';
+ const best=candidates[0],idx=entries.indexOf(best);
+ // Se la riga immediatamente successiva completa il nome, includila.
+ let suggestion=best.text;
+ const next=entries.find((l,i)=>i>0&&entries[i-1].text===best.text);
+ if(next&&next.confidence>=35&&suggestion.length+next.text.length<70&&!noise.test(next.text))suggestion+=' '+next.text;
+ return suggestion.slice(0,80).trim();
+}
 async function recognizePhotoName(src){
- const status=$('photoOcrStatus');status.textContent='Lettura delle parole in corso…';
+ if(ocrBusy)return;
+ const status=$('photoOcrStatus');ocrBusy=true;$('retryOcr').disabled=true;
+ status.textContent='IA locale: preparo la fotografia per leggere il nome…';
  try{
   if(!window.Tesseract){
-   await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=resolve;s.onerror=()=>reject(Error('Libreria OCR non caricata'));document.head.append(s)});
+   await new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-ocr]');
+    if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria OCR non disponibile')),{once:true});return}
+    const s=document.createElement('script');s.dataset.ocr='1';s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload=resolve;s.onerror=()=>reject(Error('Connessione necessaria per il primo caricamento OCR'));document.head.append(s);
+   });
   }
-  const result=await window.Tesseract.recognize(src,'ita+eng');
-  const lines=String(result?.data?.text||'').split(/\n/).map(s=>s.trim()).filter(s=>s.length>=3&&/[a-zA-ZÀ-ÿ]/.test(s));
-  const suggestion=lines.slice(0,3).join(' ').replace(/[^\p{L}\p{N} &'’-]/gu,' ').replace(/\s+/g,' ').slice(0,80).trim();
-  if(suggestion&&!$('name').value.trim()){$('name').value=suggestion;status.textContent='Nome proposto dalla foto: verifica o correggi prima di salvare.'}
-  else status.textContent='Nessun nome leggibile: puoi scriverlo manualmente.';
- }catch(err){status.textContent='OCR non disponibile ('+String(err?.message||'errore').slice(0,65)+'). Inserisci il nome manualmente.'}
+  const enhanced=await enhanceOcrImage(src);
+  status.textContent='IA locale: riconoscimento delle scritte…';
+  const result=await window.Tesseract.recognize(enhanced,'ita+eng');
+  const data=result?.data||{};
+  let suggestion=selectMerchantName(data);
+  if(!suggestion){
+   const lines=String(data.text||'').split(/\\n/).map(t=>t.trim()).filter(t=>/[A-Za-zÀ-ÿ]{3}/.test(t));
+   suggestion=lines.slice(0,2).join(' ').replace(/[^\\p{L}\\p{N} &'’.-]/gu,' ').slice(0,80).trim();
+  }
+  if(suggestion){
+   if(!$('name').value.trim())$('name').value=suggestion;
+   status.textContent='Nome rilevato: '+suggestion+'. Controllalo prima di salvare.';
+  }else status.textContent='Non ho riconosciuto un nome leggibile. Puoi scriverlo manualmente o riprovare.';
+ }catch(err){status.textContent='OCR non disponibile: '+String(err?.message||err).slice(0,90)+'. Puoi inserire il nome manualmente.'}
+ finally{ocrBusy=false;$('retryOcr').disabled=false}
 }
+$('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(photoDraft);else toast('Prima scatta una fotografia')};
 
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
 $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(),number=$('number').value.trim().toUpperCase(),format=$('format').value;try{encode(format,number)}catch(err){toast(err.message);return}if(!name)return toast('Inserisci un nome');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
