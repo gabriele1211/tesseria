@@ -23,7 +23,7 @@ $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').v
 $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(),number=$('number').value.trim().toUpperCase(),format=$('format').value;try{encode(format,number)}catch(err){toast(err.message);return}if(!name)return toast('Inserisci un nome');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
 $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').onclick=()=>{if(confirm('Eliminare definitivamente questa tessera?')){cards=cards.filter(c=>c.id!==current);if(save()){TesseriaPhotos.del(current).catch(()=>{});show('home')}}};$('rotate').onclick=()=>$('detail').classList.toggle('rotated');
 $('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(async c=>({...c,frontPhoto:await TesseriaPhotos.get(c.id)||null})));const blob=new Blob([JSON.stringify({app:'Tesseria',version:2,cards:withPhotos},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='tesseria-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){toast('Backup non riuscito: '+err.message)}};
-$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!/^data:image\\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(c.frontPhoto)))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
+$('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
 let zxingReader=null,scanToken=0;
 const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
 function stopCamera(){scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
@@ -35,14 +35,23 @@ async function scanZXing(video,token){await loadZXing();if(!scanning||token!==sc
 $('scan').onclick=async()=>{if(scanning)return;if(!navigator.mediaDevices?.getUserMedia){toast('Fotocamera non disponibile in questo browser o contesto');return}const token=++scanToken;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});if(token!==scanToken){stream.getTracks().forEach(t=>t.stop());stream=null;return}const video=$('camera');video.srcObject=stream;video.hidden=false;$('stopCamera').hidden=false;await video.play();scanning=true;$('scanMessage').textContent='Inquadra il codice a barre con la fotocamera';if('BarcodeDetector'in window){const handled=await scanNative(video,token);if(handled)return}if(scanning&&token===scanToken)await scanZXing(video,token)}catch(err){stopCamera();$('scanMessage').textContent=err.message;toast('Scanner: '+err.message)}};
 load();show('home');
 if('serviceWorker' in navigator){
- let reloaded=false;
- navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!reloaded){reloaded=true;location.reload()}});
+ let refreshing=false;
+ navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!refreshing){refreshing=true;location.reload()}});
+ const banner=$('updateBanner'),install=$('installUpdate'),dismiss=$('dismissUpdate');
+ let pendingWorker=null;
+ function offer(worker){if(!worker||!navigator.serviceWorker.controller)return;pendingWorker=worker;banner.hidden=false}
+ install.onclick=()=>{if(pendingWorker){install.disabled=true;install.textContent='Aggiornamento in corso…';pendingWorker.postMessage({type:'SKIP_WAITING'})}else location.reload()};
+ dismiss.onclick=()=>{banner.hidden=true};
  window.addEventListener('load',async()=>{
   try{
    const registration=await navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'});
+   if(registration.waiting)offer(registration.waiting);
+   registration.addEventListener('updatefound',()=>{
+    const worker=registration.installing;if(!worker)return;
+    worker.addEventListener('statechange',()=>{if(worker.state==='installed')offer(registration.waiting||worker)});
+   });
    registration.update().catch(()=>{});
    document.addEventListener('visibilitychange',()=>{if(!document.hidden)registration.update().catch(()=>{})});
-   window.addEventListener('pageshow',()=>registration.update().catch(()=>{}));
   }catch(err){console.warn('Aggiornamento PWA non disponibile',err)}
  });
 }
