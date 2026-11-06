@@ -10,3 +10,6 @@
 @keyframes tesseria-update-shimmer{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@media(prefers-reduced-motion:reduce){.update-banner{animation:none;background:#fbbf24}}.update-banner button{font-weight:800}.update-banner button.secondary{color:#152238;background:#ffffff9c}
 
 .setup-guide{max-width:620px;margin:12px auto;padding:20px;background:#fff;border-radius:18px;box-shadow:0 4px 18px #123e7218}.setup-guide h2{margin-top:0}.setup-step{padding:14px;margin:12px 0;border:1px solid #d9e6f2;border-radius:14px;background:#f7faff}.setup-step strong{color:#123e72}.setup-step p{line-height:1.5}.setup-step button{max-width:100%}.setup-guide[hidden]{display:none!important}#cameraGuideResult{font-size:13px;overflow-wrap:anywhere}
+
+/* Guida sempre leggibile anche con iPhone in modalità scura */
+#setupGuide{color:#152a43!important;background:#fff!important;opacity:1!important}#setupGuide h2,#setupGuide p,#setupGuide strong{color:#152a43!important;opacity:1!important}#setupGuide .setup-step{background:#f2f7ff!important;border-color:#c8d8ea!important;color:#152a43!important}#setupGuide #cameraGuideResult{color:#173d68!important;font-weight:650}#setupGuide button:not(.secondary){background:#165a9f!important;color:#fff!important}#setupGuide button.secondary{background:#e4eaf3!important;color:#173d68!important}
