@@ -26,6 +26,7 @@ $('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(a
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
 let zxingReader=null,scanToken=0;
 const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
+function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message;}
 function stopCamera(){scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
 $('stopCamera').onclick=stopCamera;
 function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch(err){$('scanMessage').textContent='Codice individuato ma formato non riproducibile: '+fmt+'. Inserisci il numero manualmente.';return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Codice acquisito: controlla il numero e salva la tessera.';toast('Codice acquisito');return true}
@@ -45,17 +46,18 @@ async function scanZXing(video,token){
  const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Lettore codici non disponibile');
  const formats=[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.ITF];
  const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,formats],[ZXing.DecodeHintType.TRY_HARDER,true]]);
- const reader=new ZXing.BrowserMultiFormatReader(hints,250);zxingReader=reader;
+ const reader=new ZXing.BrowserMultiFormatReader(hints,250);zxingReader=reader;scannerStatus('Lettore avanzato attivo · in attesa di un codice');
  $('scanMessage').textContent='Lettore attivo. Avvicina lentamente il codice, tenendolo orizzontale.';
  let attempts=0;
  const onResult=(result,error)=>{
   if(!scanning||token!==scanToken)return;
   if(result){
    const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];
-   if(!acceptScan(fmt,result.getText()))$('scanMessage').textContent='Codice rilevato ('+fmt+'), ma non riproducibile. Prova un’altra tessera.';
+   scannerStatus('Codice individuato: '+fmt);if(!acceptScan(fmt,result.getText()))$('scanMessage').textContent='Codice rilevato ('+fmt+'), ma non riproducibile. Prova un’altra tessera.';
    return;
   }
   attempts++;
+  if(attempts%15===0)scannerStatus('Lettore avanzato · tentativi: '+attempts);
   if(attempts===25)$('scanMessage').textContent='Lettore attivo, nessun codice riconosciuto. Riempi la cornice con tutte le barre.';
   if(error&&attempts%50===0&&error.name!=='NotFoundException'&&error.name!=='ChecksumException'&&error.name!=='FormatException'){
    $('scanMessage').textContent='Lettore attivo, verifica in corso. '+String(error.name||'').slice(0,40);
@@ -80,22 +82,23 @@ $('scan').onclick=async()=>{
  if(scanning)return;
  if(!navigator.mediaDevices?.getUserMedia){$('scanMessage').textContent='Fotocamera non disponibile: usa Safari o Chrome con connessione HTTPS.';return}
  const token=++scanToken;
+ scannerStatus('Avvio scanner…');
  try{
   // Carica il motore prima di aprire la fotocamera, così gli errori non la richiudono subito.
   const nativeAvailable='BarcodeDetector'in window;
-  if(!nativeAvailable){$('scanMessage').textContent='Preparazione dello scanner…';await loadZXing()}
+  if(!nativeAvailable){scannerStatus('Caricamento lettore codici…');await loadZXing();scannerStatus('Lettore caricato, apertura fotocamera…')}
   if(token!==scanToken)return;
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
   if(token!==scanToken){stream.getTracks().forEach(t=>t.stop());stream=null;return}
   const video=$('camera');video.srcObject=stream;video.hidden=false;$('stopCamera').hidden=false;
-  await video.play();scanning=true;$('scanMessage').textContent='Inquadra il codice a barre.';
-  if(nativeAvailable){const handled=await scanNative(video,token);if(handled||!scanning||token!==scanToken)return;$('scanMessage').textContent='Ricerca avanzata del codice in corso…'}
-  if(scanning&&token===scanToken)await scanZXing(video,token);
+  await video.play();scanning=true;scannerStatus('Fotocamera attiva · '+video.videoWidth+' × '+video.videoHeight);$('scanMessage').textContent='Inquadra il codice a barre.';
+  if(nativeAvailable){scannerStatus('Lettore nativo: ricerca codice…');const handled=await scanNative(video,token);if(handled||!scanning||token!==scanToken)return;$('scanMessage').textContent='Ricerca avanzata del codice in corso…'}
+  if(scanning&&token===scanToken){scannerStatus('Avvio lettore avanzato…');await scanZXing(video,token)}
  }catch(err){
   const msg=scanErrorMessage(err);
   $('scanMessage').textContent=msg;
   // Se la fotocamera funziona, lasciala aperta per consentire un nuovo tentativo.
-  stopCamera();
+  stopCamera();scannerStatus('Errore scanner: '+(err?.name||'Errore')+' · '+String(err?.message||'').slice(0,110));
   $('scanMessage').textContent=msg;
   toast(msg);
  }
