@@ -24,11 +24,35 @@ $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(
 $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').onclick=()=>{if(confirm('Eliminare definitivamente questa tessera?')){cards=cards.filter(c=>c.id!==current);if(save()){TesseriaPhotos.del(current).catch(()=>{});show('home')}}};$('rotate').onclick=()=>$('detail').classList.toggle('rotated');
 $('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(async c=>({...c,frontPhoto:await TesseriaPhotos.get(c.id)||null})));const blob=new Blob([JSON.stringify({app:'Tesseria',version:2,cards:withPhotos},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='tesseria-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){toast('Backup non riuscito: '+err.message)}};
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
-let zxingReader=null,scanToken=0;
+let zxingReader=null,scanToken=0,scanCandidates=new Map();
 const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
 function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message;}
-function stopCamera(){scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
+function stopCamera(){scanCandidates.clear();scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
 $('stopCamera').onclick=stopCamera;
+function validatedCandidate(format,value){
+ const normalized=String(value||'').trim(),fmt=String(format||'').toUpperCase();
+ if(fmt==='EAN_13'||fmt==='EAN13'){
+  if(!/^\\d{13}$/.test(normalized))return false;
+  const digits=[...normalized].map(Number);
+  const sum=digits.slice(0,12).reduce((acc,d,i)=>acc+d*(i%2===0?1:3),0);
+  if((10-sum%10)%10!==digits[12])return false;
+ }
+ if(fmt==='EAN_8'||fmt==='EAN8'){
+  if(!/^\\d{8}$/.test(normalized))return false;
+  const digits=[...normalized].map(Number);
+  const sum=digits.slice(0,7).reduce((acc,d,i)=>acc+d*(i%2===0?3:1),0);
+  if((10-sum%10)%10!==digits[7])return false;
+ }
+ const key=fmt+':'+normalized,now=Date.now();
+ for(const [k,item] of scanCandidates)if(now-item.last>12000)scanCandidates.delete(k);
+ const item=scanCandidates.get(key)||{count:0,last:now};
+ if(now-item.last>3500)item.count=0;
+ item.count++;item.last=now;scanCandidates.set(key,item);
+ scannerStatus('Codice rilevato · verifica '+Math.min(item.count,3)+'/3');
+ if(item.count<3)return false;
+ scanCandidates.clear();
+ return true;
+}
 function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch(err){$('scanMessage').textContent='Codice individuato ma formato non riproducibile: '+fmt+'. Inserisci il numero manualmente.';return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Codice acquisito: controlla il numero e salva la tessera.';toast('Codice acquisito');return true}
 function loadZXing(){if(window.ZXing?.BrowserMultiFormatReader)return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector('script[data-zxing]');if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria scanner non disponibile')),{once:true});return}const s=document.createElement('script');s.src=ZXING_URL;s.dataset.zxing='1';s.onload=resolve;s.onerror=()=>reject(Error('Impossibile caricare lo scanner: serve una connessione Internet al primo utilizzo'));document.head.append(s)})}
 async function scanNative(video,token){
@@ -36,7 +60,7 @@ async function scanNative(video,token){
  try{detector=new BarcodeDetector({formats:['ean_13','ean_8','code_39','itf']})}catch{return false}
  const started=Date.now();
  while(scanning&&token===scanToken&&Date.now()-started<2800){
-  try{for(const b of await detector.detect(video)){if(acceptScan(b.format,b.rawValue))return true}}catch{return false}
+  try{for(const b of await detector.detect(video)){if(validatedCandidate(b.format,b.rawValue)&&acceptScan(b.format,b.rawValue))return true}}catch{return false}
   await new Promise(r=>setTimeout(r,180))
  }
  return false;
@@ -53,7 +77,9 @@ async function scanZXing(video,token){
   if(!scanning||token!==scanToken)return;
   if(result){
    const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];
-   scannerStatus('Codice individuato: '+fmt);if(!acceptScan(fmt,result.getText()))$('scanMessage').textContent='Codice rilevato ('+fmt+'), ma non riproducibile. Prova un’altra tessera.';
+   if(!validatedCandidate(fmt,result.getText()))return;
+   scannerStatus('Codice confermato: '+fmt);
+   if(!acceptScan(fmt,result.getText()))$('scanMessage').textContent='Codice rilevato ma non riproducibile: controlla il numero.';
    return;
   }
   attempts++;
@@ -90,7 +116,7 @@ function scanErrorMessage(error){
 $('scan').onclick=async()=>{
  if(scanning)return;
  if(!navigator.mediaDevices?.getUserMedia){$('scanMessage').textContent='Fotocamera non disponibile: usa Safari o Chrome con connessione HTTPS.';return}
- const token=++scanToken;
+ scanCandidates.clear();const token=++scanToken;
  scannerStatus('Avvio scanner…');
  try{
   // Carica il motore prima di aprire la fotocamera, così gli errori non la richiudono subito.
