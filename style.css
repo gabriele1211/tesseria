@@ -72,3 +72,12 @@ body.scanner-open{overflow:hidden}
 .crop-viewport img{width:100%;height:100%;object-fit:cover;transform-origin:center}
 .crop-panel label{display:block;margin:10px 0;font-size:13px}.crop-panel input[type=range]{width:100%;margin:6px 0}
 #photoOcrStatus{line-height:1.4}
+
+/* v1.0.22: ritaglio multitouch con riferimento tessera */
+.crop-viewport{position:relative;touch-action:none;user-select:none;-webkit-user-select:none}
+.crop-viewport canvas{width:100%;height:100%;display:block;touch-action:none}
+.crop-guide{position:absolute;inset:5%;border:2px dashed #ffdc67;border-radius:10px;pointer-events:none;box-shadow:0 0 0 100vmax #0002}
+#cropReset{margin-top:12px}
+#confirmCrop{margin-left:auto;order:2}
+#cancelCrop{order:1}
+#removePhoto{display:flex;margin-left:auto;margin-right:0}
