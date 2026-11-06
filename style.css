@@ -59,3 +59,16 @@ body.scanner-open{overflow:hidden}
 /* Il video legacy resta nascosto: non nascondere il contenitore html5-qrcode */
 .scanner-panel .scanner-frame:has(video[hidden]){display:block}
 .scanner-panel .scanner-frame{aspect-ratio:16/9}
+
+/* v1.0.21: proporzioni compatte del barcode, ritaglio tessera */
+.barcodebox svg{display:block;width:100%;max-width:540px;height:auto;min-height:0;max-height:220px;margin:0 auto;}
+.barcodebox{padding:22px 14px}
+.barcodebox p{margin:12px 0 0}
+.crop-modal{position:fixed;inset:0;z-index:350;background:#061321df;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
+.crop-modal[hidden]{display:none!important}
+.crop-panel{background:#10263e;color:#eef5ff;border-radius:18px;padding:17px;width:100%;max-width:520px;max-height:94dvh;overflow:auto}
+.crop-panel h3{margin:0 0 6px}.crop-panel p{font-size:13px;color:#cbd9e8}
+.crop-viewport{width:100%;aspect-ratio:1.586;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;border:2px solid #ffca4a;border-radius:8px}
+.crop-viewport img{width:100%;height:100%;object-fit:cover;transform-origin:center}
+.crop-panel label{display:block;margin:10px 0;font-size:13px}.crop-panel input[type=range]{width:100%;margin:6px 0}
+#photoOcrStatus{line-height:1.4}
