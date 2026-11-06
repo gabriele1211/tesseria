@@ -16,7 +16,7 @@ const itfA=['00110','10001','01001','11000','00101','10100','01100','00011','100
 function checkEAN(v){let s=0;for(let i=v.length-2,k=0;i>=0;i--,k++)s+=Number(v[i])*(k%2===0?3:1);return (10-s%10)%10===Number(v.at(-1))}
 function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!/^\d{13}$/.test(v)||!checkEAN(v))throw Error('EAN-13: servono 13 cifre con cifra di controllo valida');let bits='101';for(let i=1;i<7;i++)bits+=(parity[Number(v[0])][i-1]==='L'?eanL:eanG)[Number(v[i])];bits+='01010';for(let i=7;i<13;i++)bits+=eanR[Number(v[i])];return bits+'101'}if(fmt==='EAN8'){if(!/^\d{8}$/.test(v)||!checkEAN(v))throw Error('EAN-8: servono 8 cifre con cifra di controllo valida');return '101'+[...v.slice(0,4)].map(n=>eanL[+n]).join('')+'01010'+[...v.slice(4)].map(n=>eanR[+n]).join('')+'101'}if(fmt==='CODE39'){if(!v||[...v].some(ch=>!c39[ch]||ch==='*'))throw Error('Code 39: caratteri non supportati');return '*'+v+'*'}if(fmt==='ITF'){if(!/^\d+$/.test(v)||v.length%2)throw Error('ITF: è richiesto un numero pari di cifre');let bits='1010';for(let i=0;i<v.length;i+=2){let a=itfA[+v[i]],b=itfA[+v[i+1]];for(let j=0;j<5;j++)bits+=(a[j]==='1'?'111':'1')+(b[j]==='1'?'000':'0')}return bits+'11101'}throw Error('Formato non supportato')}
 function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
-async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
+async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('cardActions').open=false;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
 let photoCameraStream=null,photoMonitor=null,photoCaptureBusy=false,photoStable=0,photoLastFrame=null;
 function stopPhotoMonitor(){if(photoMonitor){clearInterval(photoMonitor);photoMonitor=null}photoStable=0;photoLastFrame=null}
@@ -28,33 +28,40 @@ function closePhotoCamera(){
 $('closePhotoCamera').onclick=closePhotoCamera;
 $('choosePhoto').onclick=()=>{closePhotoCamera();$('frontPhoto').click()};
 function photoFrameQuality(video){
- const c=document.createElement('canvas');c.width=160;c.height=100;
+ const c=document.createElement('canvas');c.width=240;c.height=152;
  const ctx=c.getContext('2d',{willReadFrequently:true});
  const w=video.videoWidth,h=video.videoHeight,ratio=1.586,sw=Math.min(w,h*ratio),sh=sw/ratio;
- ctx.drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,160,100);
- const pixels=ctx.getImageData(0,0,160,100).data,gray=new Float32Array(160*100);
- let brightness=0,edges=0,change=0;
- for(let i=0;i<gray.length;i++){const k=i*4;gray[i]=pixels[k]*.299+pixels[k+1]*.587+pixels[k+2]*.114;brightness+=gray[i]}
- for(let y=8;y<92;y+=2)for(let x=8;x<152;x+=2){
-  const i=y*160+x;edges+=Math.abs(gray[i]-gray[i+1])+Math.abs(gray[i]-gray[i+160]);
-  if(photoLastFrame)change+=Math.abs(gray[i]-photoLastFrame[i]);
+ ctx.drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,240,152);
+ const p=ctx.getImageData(0,0,240,152).data,gray=new Float32Array(240*152);
+ for(let i=0;i<gray.length;i++){const k=i*4;gray[i]=p[k]*.299+p[k+1]*.587+p[k+2]*.114}
+ const bright=(x,y)=>gray[y*240+x]>160;
+ let inside=0,outside=0;
+ // Per acquisire automaticamente richiediamo una tessera chiara, distinta dallo sfondo scuro.
+ for(let y=24;y<128;y+=8)for(let x=32;x<208;x+=8)inside+=bright(x,y)?1:0;
+ for(let y=4;y<148;y+=8)for(const x of [4,12,228,236])outside+=bright(x,y)?1:0;
+ let motion=100;
+ if(photoLastFrame){
+  let diff=0,n=0;
+  for(let y=8;y<144;y+=4)for(let x=8;x<232;x+=4){const i=y*240+x;diff+=Math.abs(gray[i]-photoLastFrame[i]);n++}
+  motion=diff/n;
  }
- const motion=photoLastFrame?change/((84/2)*(144/2)):100;
  photoLastFrame=gray;
- return {brightness:brightness/gray.length,edges:edges/((84/2)*(144/2)),motion};
+ return {inside:inside/(13*22),outside:outside/(18*4),motion};
 }
 function monitorPhoto(){
  stopPhotoMonitor();
  photoMonitor=setInterval(()=>{
   const v=$('photoCameraVideo');if(!v.videoWidth||photoCaptureBusy||$('photoCameraModal').hidden)return;
   const q=photoFrameQuality(v);
-  const ready=q.brightness>65&&q.brightness<225&&q.edges>15&&q.motion<7;
+  // Evita falsi scatti: riconoscimento prudente solo per tessere chiare su fondo scuro.
+  const ready=q.inside>.65&&q.outside<.30&&q.motion<9;
   photoStable=ready?photoStable+1:0;
-  $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=2);
-  $('photoCameraStatus').textContent=photoStable>=2?'Inquadratura stabile · acquisizione automatica…':'Centra la tessera nella cornice e tieni fermo il telefono.';
-  if(photoStable>=5)capturePhoto();
- },280);
+  $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=3);
+  $('photoCameraStatus').textContent=photoStable>=3?'Tessera stabile · acquisizione…':'Allinea la tessera alla cornice. Se non viene rilevata, usa Scatta foto.';
+  if(photoStable>=6)capturePhoto();
+ },300);
 }
+
 $('openPhotoCamera').onclick=async()=>{
  $('photoCameraModal').hidden=false;$('photoCameraStatus').textContent='Apertura fotocamera…';
  try{
