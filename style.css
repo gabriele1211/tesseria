@@ -93,3 +93,5 @@ body.scanner-open{overflow:hidden}
 #retryOcr{margin:4px 0 12px;min-height:40px;font-size:13px}
 
 .photo-camera-frame.photo-ready .photo-camera-guide{border-color:#3be58c;box-shadow:0 0 0 100vmax #0004,0 0 16px #3be58c}
+
+.card-actions{margin:18px 0 0;position:relative}.card-actions summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:10px;border:1px solid #7692b5;border-radius:12px;background:#203b59;color:#fff;padding:8px 13px;font-size:24px;line-height:1}.card-actions summary::-webkit-details-marker{display:none}.card-actions summary span{font-size:14px}.card-actions-menu{display:flex;flex-direction:column;gap:9px;margin-top:12px;max-width:290px}.card-actions-menu button{font-size:15px;text-align:left}.card-actions-menu .danger{margin-top:8px}
