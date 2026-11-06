@@ -18,32 +18,65 @@ function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!
 function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
-let photoCameraStream=null;
+let photoCameraStream=null,photoMonitor=null,photoCaptureBusy=false,photoStable=0,photoLastFrame=null;
+function stopPhotoMonitor(){if(photoMonitor){clearInterval(photoMonitor);photoMonitor=null}photoStable=0;photoLastFrame=null}
 function closePhotoCamera(){
- $('photoCameraModal').hidden=true;
+ stopPhotoMonitor();$('photoCameraModal').hidden=true;
  if(photoCameraStream){photoCameraStream.getTracks().forEach(t=>t.stop());photoCameraStream=null}
  const video=$('photoCameraVideo');video.pause();video.srcObject=null;
 }
 $('closePhotoCamera').onclick=closePhotoCamera;
 $('choosePhoto').onclick=()=>{closePhotoCamera();$('frontPhoto').click()};
+function photoFrameQuality(video){
+ const c=document.createElement('canvas');c.width=160;c.height=100;
+ const ctx=c.getContext('2d',{willReadFrequently:true});
+ const w=video.videoWidth,h=video.videoHeight,ratio=1.586,sw=Math.min(w,h*ratio),sh=sw/ratio;
+ ctx.drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,160,100);
+ const pixels=ctx.getImageData(0,0,160,100).data,gray=new Float32Array(160*100);
+ let brightness=0,edges=0,change=0;
+ for(let i=0;i<gray.length;i++){const k=i*4;gray[i]=pixels[k]*.299+pixels[k+1]*.587+pixels[k+2]*.114;brightness+=gray[i]}
+ for(let y=8;y<92;y+=2)for(let x=8;x<152;x+=2){
+  const i=y*160+x;edges+=Math.abs(gray[i]-gray[i+1])+Math.abs(gray[i]-gray[i+160]);
+  if(photoLastFrame)change+=Math.abs(gray[i]-photoLastFrame[i]);
+ }
+ const motion=photoLastFrame?change/((84/2)*(144/2)):100;
+ photoLastFrame=gray;
+ return {brightness:brightness/gray.length,edges:edges/((84/2)*(144/2)),motion};
+}
+function monitorPhoto(){
+ stopPhotoMonitor();
+ photoMonitor=setInterval(()=>{
+  const v=$('photoCameraVideo');if(!v.videoWidth||photoCaptureBusy||$('photoCameraModal').hidden)return;
+  const q=photoFrameQuality(v);
+  const ready=q.brightness>65&&q.brightness<225&&q.edges>15&&q.motion<7;
+  photoStable=ready?photoStable+1:0;
+  $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=2);
+  $('photoCameraStatus').textContent=photoStable>=2?'Inquadratura stabile · acquisizione automatica…':'Centra la tessera nella cornice e tieni fermo il telefono.';
+  if(photoStable>=5)capturePhoto();
+ },280);
+}
 $('openPhotoCamera').onclick=async()=>{
  $('photoCameraModal').hidden=false;$('photoCameraStatus').textContent='Apertura fotocamera…';
  try{
   photoCameraStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
   if($('photoCameraModal').hidden){photoCameraStream.getTracks().forEach(t=>t.stop());photoCameraStream=null;return}
-  const video=$('photoCameraVideo');video.srcObject=photoCameraStream;await video.play();
-  $('photoCameraStatus').textContent='Posiziona il fronte della tessera dentro il riquadro.';
+  const video=$('photoCameraVideo');video.srcObject=photoCameraStream;await video.play();monitorPhoto();
  }catch(err){$('photoCameraStatus').textContent='Fotocamera non disponibile: '+String(err?.message||err).slice(0,120)+'. Puoi scegliere una foto dalla galleria.'}
 };
-$('takePhoto').onclick=async()=>{
+async function capturePhoto(){
+ if(photoCaptureBusy)return;
  const video=$('photoCameraVideo');if(!video.videoWidth)return toast('Attendi che la fotocamera sia pronta');
- const canvas=document.createElement('canvas'),ratio=1.586;
- const w=video.videoWidth,h=video.videoHeight,sw=Math.min(w,h*ratio),sh=sw/ratio;
- canvas.width=1200;canvas.height=Math.round(1200/ratio);
- canvas.getContext('2d').drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
- const src=canvas.toDataURL('image/jpeg',.92);closePhotoCamera();
- await preparePhotoCrop(src);
-};
+ photoCaptureBusy=true;
+ try{
+  const canvas=document.createElement('canvas'),ratio=1.586;
+  const w=video.videoWidth,h=video.videoHeight,sw=Math.min(w,h*ratio),sh=sw/ratio;
+  canvas.width=1200;canvas.height=Math.round(1200/ratio);
+  canvas.getContext('2d').drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
+  const src=canvas.toDataURL('image/jpeg',.92);closePhotoCamera();
+  await preparePhotoCrop(src);
+ }finally{photoCaptureBusy=false}
+}
+$('takePhoto').onclick=capturePhoto;
 async function preparePhotoCrop(src){
  pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
