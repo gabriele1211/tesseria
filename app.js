@@ -80,6 +80,33 @@ $('scan').onclick=async()=>{
  }
 };
 load();show('home');
+(function setupOnboarding(){
+ const guide=$('setupGuide'),cameraText=$('cameraGuideText'),cameraResult=$('cameraGuideResult'),installText=$('installGuideText'),installBtn=$('installPwa');
+ const ua=navigator.userAgent||'',ios=/iPhone|iPad|iPod/.test(ua),android=/Android/.test(ua),standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+ let installPrompt=null;
+ function openGuide(){document.querySelectorAll('main > section').forEach(s=>s.hidden=true);guide.hidden=false;window.scrollTo(0,0)}
+ $('openGuide').onclick=openGuide;
+ $('finishGuide').onclick=()=>show('home');
+ window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;installBtn.hidden=false;installText.textContent='Premi Installa applicazione per aggiungere Tesseria alla schermata Home.'});
+ installBtn.onclick=async()=>{if(!installPrompt)return;installPrompt.prompt();try{await installPrompt.userChoice}catch{}installPrompt=null;installBtn.hidden=true};
+ window.addEventListener('appinstalled',()=>{installText.textContent='Tesseria installata sulla schermata Home.';installBtn.hidden=true});
+ if(standalone){installText.textContent='Tesseria è già installata sulla schermata Home.'}
+ else if(ios){installText.textContent='In Safari tocca Condividi (quadrato con freccia) e scegli Aggiungi alla schermata Home. Se usi un altro browser, apri prima il sito in Safari.'}
+ else if(android){installText.textContent='In Chrome apri il menu ⋮ e scegli Installa app oppure Aggiungi a schermata Home.'}
+ else{installText.textContent='Apri il menu del browser e scegli Installa app o Aggiungi alla schermata Home, se disponibile.'}
+ $('grantCamera').onclick=async()=>{
+  cameraResult.textContent='Richiesta autorizzazione in corso…';
+  if(!navigator.mediaDevices?.getUserMedia){cameraResult.textContent='La fotocamera richiede HTTPS e un browser compatibile.';return}
+  let testStream=null;
+  try{testStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});cameraResult.textContent='✓ Fotocamera autorizzata. Ora puoi scansionare le tessere.';cameraText.textContent='Autorizzazione concessa.'}
+  catch(err){cameraResult.textContent=scanErrorMessage(err)+(ios?' Su iPhone: in Safari apri Impostazioni sito web → Fotocamera → Consenti o Chiedi. Se usi la PWA installata, verifica anche i permessi nelle Impostazioni di iOS.':android?' Su Android: tocca l’icona accanto all’indirizzo → Autorizzazioni → Fotocamera → Consenti.':' Controlla i permessi del sito nelle impostazioni del browser.')}
+  finally{if(testStream)testStream.getTracks().forEach(t=>t.stop())}
+ };
+ if(!standalone&&!localStorage.getItem('tesseria.onboarding.seen.v1')){
+  localStorage.setItem('tesseria.onboarding.seen.v1','1');openGuide()
+ }
+})();
+
 if('serviceWorker' in navigator){
  let refreshing=false;
  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!refreshing){refreshing=true;location.reload()}});
