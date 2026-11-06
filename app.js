@@ -18,6 +18,37 @@ function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!
 function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
+let photoCameraStream=null;
+function closePhotoCamera(){
+ $('photoCameraModal').hidden=true;
+ if(photoCameraStream){photoCameraStream.getTracks().forEach(t=>t.stop());photoCameraStream=null}
+ const video=$('photoCameraVideo');video.pause();video.srcObject=null;
+}
+$('closePhotoCamera').onclick=closePhotoCamera;
+$('choosePhoto').onclick=()=>{closePhotoCamera();$('frontPhoto').click()};
+$('openPhotoCamera').onclick=async()=>{
+ $('photoCameraModal').hidden=false;$('photoCameraStatus').textContent='Apertura fotocamera…';
+ try{
+  photoCameraStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+  if($('photoCameraModal').hidden){photoCameraStream.getTracks().forEach(t=>t.stop());photoCameraStream=null;return}
+  const video=$('photoCameraVideo');video.srcObject=photoCameraStream;await video.play();
+  $('photoCameraStatus').textContent='Posiziona il fronte della tessera dentro il riquadro.';
+ }catch(err){$('photoCameraStatus').textContent='Fotocamera non disponibile: '+String(err?.message||err).slice(0,120)+'. Puoi scegliere una foto dalla galleria.'}
+};
+$('takePhoto').onclick=async()=>{
+ const video=$('photoCameraVideo');if(!video.videoWidth)return toast('Attendi che la fotocamera sia pronta');
+ const canvas=document.createElement('canvas'),ratio=1.586;
+ const w=video.videoWidth,h=video.videoHeight,sw=Math.min(w,h*ratio),sh=sw/ratio;
+ canvas.width=1200;canvas.height=Math.round(1200/ratio);
+ canvas.getContext('2d').drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
+ const src=canvas.toDataURL('image/jpeg',.92);closePhotoCamera();
+ await preparePhotoCrop(src);
+};
+async function preparePhotoCrop(src){
+ pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
+ Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
+ $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
+}
 let pendingPhoto=null,cropImage=null;
 const cropState={zoom:1,rotation:0,x:0,y:0};
 const cropPointers=new Map();let gesture=null;
@@ -61,10 +92,7 @@ $('frontPhoto').onchange=async e=>{
  const f=e.target.files[0];if(!f)return;
  try{
   if(!f.type.startsWith('image/'))throw Error('Seleziona una fotografia');
-  pendingPhoto=await TesseriaPhotos.compress(f);
-  cropImage=new Image();cropImage.src=pendingPhoto;await cropImage.decode();
-  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
-  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
+  await preparePhotoCrop(await TesseriaPhotos.compress(f));
  }catch(err){toast(err.message);e.target.value=''}
 };
 $('cancelCrop').onclick=()=>{$('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value=''};
@@ -79,17 +107,17 @@ $('confirmCrop').onclick=async()=>{
  if(!$('name').value.trim())recognizePhotoName(photoDraft);
 };
 async function recognizePhotoName(src){
- const status=$('photoOcrStatus');status.textContent='Ricerca del nome sulla tessera…';
+ const status=$('photoOcrStatus');status.textContent='Lettura delle parole in corso…';
  try{
   if(!window.Tesseract){
-   await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=resolve;s.onerror=reject;document.head.append(s)});
+   await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=resolve;s.onerror=()=>reject(Error('Libreria OCR non caricata'));document.head.append(s)});
   }
-  const result=await window.Tesseract.recognize(src,'ita+eng',{logger:()=>{}});
-  const lines=String(result?.data?.text||'').split(/\\n/).map(x=>x.trim()).filter(x=>x.length>=3&&/[A-Za-zÀ-ÿ]/.test(x));
-  const suggestion=lines.slice(0,2).join(' ').replace(/[^\\p{L}\\p{N} &'’-]/gu,'').slice(0,80).trim();
-  if(suggestion&&!$('name').value.trim()){$('name').value=suggestion;status.textContent='Nome suggerito dalla foto: controllalo e correggilo se necessario.'}
-  else status.textContent='Nome non individuato: inseriscilo manualmente.';
- }catch{status.textContent='Riconoscimento testo non disponibile: inserisci il nome manualmente.'}
+  const result=await window.Tesseract.recognize(src,'ita+eng');
+  const lines=String(result?.data?.text||'').split(/\n/).map(s=>s.trim()).filter(s=>s.length>=3&&/[a-zA-ZÀ-ÿ]/.test(s));
+  const suggestion=lines.slice(0,3).join(' ').replace(/[^\p{L}\p{N} &'’-]/gu,' ').replace(/\s+/g,' ').slice(0,80).trim();
+  if(suggestion&&!$('name').value.trim()){$('name').value=suggestion;status.textContent='Nome proposto dalla foto: verifica o correggi prima di salvare.'}
+  else status.textContent='Nessun nome leggibile: puoi scriverlo manualmente.';
+ }catch(err){status.textContent='OCR non disponibile ('+String(err?.message||'errore').slice(0,65)+'). Inserisci il nome manualmente.'}
 }
 
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
