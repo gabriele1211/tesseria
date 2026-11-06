@@ -33,4 +33,16 @@ function loadZXing(){if(window.ZXing?.BrowserMultiFormatReader)return Promise.re
 async function scanNative(video,token){let detector;try{detector=new BarcodeDetector({formats:['ean_13','ean_8','code_39','itf']})}catch{return false}while(scanning&&token===scanToken){try{for(const b of await detector.detect(video)){if(acceptScan(b.format,b.rawValue))return true}}catch{return false}await new Promise(r=>setTimeout(r,220))}return true}
 async function scanZXing(video,token){await loadZXing();if(!scanning||token!==scanToken)return;const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Motore ZXing non caricato');const formats=[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.ITF];const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,formats]]);const reader=new ZXing.BrowserMultiFormatReader(hints,350);zxingReader=reader;$('scanMessage').textContent='Inquadra il codice: scanner compatibile iPhone e Android';reader.decodeFromVideoElementContinuously(video,(result,error)=>{if(!scanning||token!==scanToken||!result)return;const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];acceptScan(fmt,result.getText())})}
 $('scan').onclick=async()=>{if(scanning)return;if(!navigator.mediaDevices?.getUserMedia){toast('Fotocamera non disponibile in questo browser o contesto');return}const token=++scanToken;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});if(token!==scanToken){stream.getTracks().forEach(t=>t.stop());stream=null;return}const video=$('camera');video.srcObject=stream;video.hidden=false;$('stopCamera').hidden=false;await video.play();scanning=true;$('scanMessage').textContent='Inquadra il codice a barre con la fotocamera';if('BarcodeDetector'in window){const handled=await scanNative(video,token);if(handled)return}if(scanning&&token===scanToken)await scanZXing(video,token)}catch(err){stopCamera();$('scanMessage').textContent=err.message;toast('Scanner: '+err.message)}};
-load();show('home');if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js').catch(()=>{}));
+load();show('home');
+if('serviceWorker' in navigator){
+ let reloaded=false;
+ navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!reloaded){reloaded=true;location.reload()}});
+ window.addEventListener('load',async()=>{
+  try{
+   const registration=await navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'});
+   registration.update().catch(()=>{});
+   document.addEventListener('visibilitychange',()=>{if(!document.hidden)registration.update().catch(()=>{})});
+   window.addEventListener('pageshow',()=>registration.update().catch(()=>{}));
+  }catch(err){console.warn('Aggiornamento PWA non disponibile',err)}
+ });
+}
