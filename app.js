@@ -18,36 +18,64 @@ function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!
 function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;$('detail').classList.remove('rotated');try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
-let pendingPhoto=null;
+let pendingPhoto=null,cropImage=null;
+const cropState={zoom:1,rotation:0,x:0,y:0};
+const cropPointers=new Map();let gesture=null;
+function renderCrop(){
+ const canvas=$('cropCanvas'),rect=canvas.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
+ const width=Math.max(1,Math.round(rect.width*dpr)),height=Math.max(1,Math.round(rect.height*dpr));
+ if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height}
+ const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);ctx.fillStyle='#101820';ctx.fillRect(0,0,width,height);
+ if(!cropImage)return;
+ const base=Math.max(width/cropImage.width,height/cropImage.height);
+ ctx.save();ctx.translate(width/2+cropState.x*width,height/2+cropState.y*height);ctx.rotate(cropState.rotation);
+ ctx.scale(base*cropState.zoom,base*cropState.zoom);
+ ctx.drawImage(cropImage,-cropImage.width/2,-cropImage.height/2);ctx.restore();
+}
+function cropGestureSnapshot(){
+ const p=[...cropPointers.values()];
+ if(!p.length)return null;
+ const a=p[0],b=p[1],cx=b?(a.x+b.x)/2:a.x,cy=b?(a.y+b.y)/2:a.y;
+ return {cx,cy,dist:b?Math.hypot(b.x-a.x,b.y-a.y):0,angle:b?Math.atan2(b.y-a.y,b.x-a.x):0,zoom:cropState.zoom,rotation:cropState.rotation,x:cropState.x,y:cropState.y};
+}
+const cropCanvas=$('cropCanvas');
+cropCanvas.addEventListener('pointerdown',e=>{e.preventDefault();cropCanvas.setPointerCapture(e.pointerId);cropPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});gesture=cropGestureSnapshot()});
+cropCanvas.addEventListener('pointermove',e=>{
+ if(!cropPointers.has(e.pointerId)||!gesture)return;
+ cropPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+ const p=[...cropPointers.values()],a=p[0],b=p[1],cx=b?(a.x+b.x)/2:a.x,cy=b?(a.y+b.y)/2:a.y;
+ const bounds=cropCanvas.getBoundingClientRect();
+ cropState.x=gesture.x+(cx-gesture.cx)/bounds.width;
+ cropState.y=gesture.y+(cy-gesture.cy)/bounds.height;
+ if(b&&gesture.dist>0){
+  cropState.zoom=Math.max(1,Math.min(5,gesture.zoom*Math.hypot(b.x-a.x,b.y-a.y)/gesture.dist));
+  cropState.rotation=gesture.rotation+Math.atan2(b.y-a.y,b.x-a.x)-gesture.angle;
+ }
+ renderCrop();
+});
+function releaseCropPointer(e){cropPointers.delete(e.pointerId);gesture=cropGestureSnapshot()}
+cropCanvas.addEventListener('pointerup',releaseCropPointer);
+cropCanvas.addEventListener('pointercancel',releaseCropPointer);
+$('cropReset').onclick=()=>{Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});renderCrop()};
 $('frontPhoto').onchange=async e=>{
  const f=e.target.files[0];if(!f)return;
  try{
   if(!f.type.startsWith('image/'))throw Error('Seleziona una fotografia');
   pendingPhoto=await TesseriaPhotos.compress(f);
-  $('cropSource').src=pendingPhoto;$('cropModal').hidden=false;
-  $('cropZoom').value='100';$('cropX').value='50';$('cropY').value='50';
-  updateCropPreview();
+  cropImage=new Image();cropImage.src=pendingPhoto;await cropImage.decode();
+  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
+  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
  }catch(err){toast(err.message);e.target.value=''}
 };
-function updateCropPreview(){
- const img=$('cropSource'),zoom=Number($('cropZoom').value)/100;
- img.style.transform='translate('+(50-Number($('cropX').value))*0.7+'%, '+(50-Number($('cropY').value))*0.7+'%) scale('+zoom+')';
-}
-['cropZoom','cropX','cropY'].forEach(id=>$(id).addEventListener('input',updateCropPreview));
-$('cancelCrop').onclick=()=>{$('cropModal').hidden=true;pendingPhoto=null;$('frontPhoto').value=''};
+$('cancelCrop').onclick=()=>{$('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value=''};
 $('confirmCrop').onclick=async()=>{
- if(!pendingPhoto)return;
- const img=new Image();img.src=pendingPhoto;await img.decode();
- const ratio=1.586,zoom=Number($('cropZoom').value)/100;
- const baseW=Math.min(img.width,img.height*ratio),baseH=baseW/ratio;
- const w=baseW/zoom,h=baseH/zoom;
- const cx=w/2+(img.width-w)*Number($('cropX').value)/100;
- const cy=h/2+(img.height-h)*Number($('cropY').value)/100;
- const canvas=document.createElement('canvas');canvas.width=960;canvas.height=Math.round(960/ratio);
- canvas.getContext('2d').drawImage(img,Math.max(0,Math.min(img.width-w,cx-w/2)),Math.max(0,Math.min(img.height-h,cy-h/2)),w,h,0,0,canvas.width,canvas.height);
+ if(!pendingPhoto||!cropImage)return;
+ renderCrop();
+ const source=$('cropCanvas'),canvas=document.createElement('canvas');canvas.width=960;canvas.height=Math.round(960/1.586);
+ canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);
  photoDraft=canvas.toDataURL('image/jpeg',.86);photoRemove=false;
  $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;
- $('cropModal').hidden=true;pendingPhoto=null;
+ $('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value='';
  if(!$('name').value.trim())recognizePhotoName(photoDraft);
 };
 async function recognizePhotoName(src){
