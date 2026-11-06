@@ -28,27 +28,42 @@ function closePhotoCamera(){
 $('closePhotoCamera').onclick=closePhotoCamera;
 $('choosePhoto').onclick=()=>{closePhotoCamera();$('frontPhoto').click()};
 function photoFrameQuality(video){
- const canvas=document.createElement('canvas');canvas.width=240;canvas.height=152;
- const ctx=canvas.getContext('2d',{willReadFrequently:true});
- const w=video.videoWidth,h=video.videoHeight,ratio=1.586,sw=Math.min(w,h*ratio),sh=sw/ratio;
+ const c=document.createElement('canvas');c.width=240;c.height=152;
+ const ctx=c.getContext('2d',{willReadFrequently:true}),w=video.videoWidth,h=video.videoHeight,ratio=1.586,sw=Math.min(w,h*ratio),sh=sw/ratio;
  ctx.drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,240,152);
  const p=ctx.getImageData(0,0,240,152).data,gray=new Float32Array(240*152);
  for(let i=0;i<gray.length;i++){const k=i*4;gray[i]=p[k]*.299+p[k+1]*.587+p[k+2]*.114}
- let center=0,border=0,centerN=0,borderN=0;
- for(let y=18;y<134;y+=5)for(let x=18;x<222;x+=5){
-  const v=gray[y*240+x];
-  if(x>32&&x<208&&y>24&&y<128){center+=v;centerN++}
-  else{border+=v;borderN++}
+ const pixel=(x,y)=>gray[y*240+x];
+ const bg=(pixel(4,4)+pixel(235,4)+pixel(4,147)+pixel(235,147))/4;
+ const mid=(pixel(120,35)+pixel(120,70)+pixel(120,115))/3;
+ // Contorni: cerca il passaggio dallo sfondo alla tessera su più righe e colonne.
+ const threshold=(bg+mid)/2;
+ const spans=[];
+ for(const y of [24,42,110,128]){
+  let left=-1,right=-1;
+  for(let x=5;x<115;x++)if(pixel(x,y)>threshold&&pixel(x+1,y)>threshold&&pixel(x+2,y)>threshold){left=x;break}
+  for(let x=234;x>125;x--)if(pixel(x,y)>threshold&&pixel(x-1,y)>threshold&&pixel(x-2,y)>threshold){right=x;break}
+  if(left>=0&&right>=0)spans.push({left,right});
  }
- center/=centerN;border/=borderN;
+ const vertical=[];
+ for(const x of [48,76,164,192]){
+  let top=-1,bottom=-1;
+  for(let y=3;y<65;y++)if(pixel(x,y)>threshold&&pixel(x,y+1)>threshold){top=y;break}
+  for(let y=148;y>85;y--)if(pixel(x,y)>threshold&&pixel(x,y-1)>threshold){bottom=y;break}
+  if(top>=0&&bottom>=0)vertical.push({top,bottom});
+ }
+ const mean=(arr,key)=>arr.reduce((n,v)=>n+v[key],0)/arr.length;
+ let shape=false;
+ if(spans.length===4&&vertical.length===4){
+  const left=mean(spans,'left'),right=mean(spans,'right'),top=mean(vertical,'top'),bottom=mean(vertical,'bottom');
+  const consistent=spans.every(s=>Math.abs(s.left-left)<14&&Math.abs(s.right-right)<14)&&vertical.every(s=>Math.abs(s.top-top)<12&&Math.abs(s.bottom-bottom)<12);
+  const width=right-left,height=bottom-top;
+  shape=consistent&&left>8&&right<232&&top>5&&bottom<146&&width>125&&height>65&&width/height>1.3&&width/height<2.2;
+ }
  let motion=100;
- if(photoLastFrame){
-  let diff=0,n=0;
-  for(let y=8;y<144;y+=4)for(let x=8;x<232;x+=4){const i=y*240+x;diff+=Math.abs(gray[i]-photoLastFrame[i]);n++}
-  motion=diff/n;
- }
+ if(photoLastFrame){let diff=0,n=0;for(let y=8;y<144;y+=4)for(let x=8;x<232;x+=4){const i=y*240+x;diff+=Math.abs(gray[i]-photoLastFrame[i]);n++}motion=diff/n}
  photoLastFrame=gray;
- return {contrast:center-border,motion,center};
+ return {shape,contrast:mid-bg,motion};
 }
 function monitorPhoto(){
  stopPhotoMonitor();
@@ -56,12 +71,11 @@ function monitorPhoto(){
   const v=$('photoCameraVideo');if(!v.videoWidth||photoCaptureBusy||$('photoCameraModal').hidden)return;
   try{
    const q=photoFrameQuality(v);
-   // Rilevamento euristico: tessera chiara distinta dal bordo e telefono fermo.
-   const ready=q.center>95&&q.contrast>16&&q.motion<13;
+   const ready=q.shape&&q.contrast>35&&q.motion<15;
    photoStable=ready?photoStable+1:0;
-   $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=3);
-   $('photoCameraStatus').textContent=photoStable>=3?'Inquadratura stabile · scatto automatico…':'Inquadra la tessera su uno sfondo contrastante e tieni fermo il telefono. Puoi scattare manualmente.';
-   if(photoStable>=6)capturePhoto();
+   $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=2);
+   $('photoCameraStatus').textContent=photoStable>=2?'Bordi rilevati · acquisizione automatica…':q.shape?'Bordi individuati: tieni fermo il telefono.':'Cerco i quattro bordi della tessera. Su sfondi simili o tessere scure usa Scatta foto.';
+   if(photoStable>=5)capturePhoto();
   }catch(err){stopPhotoMonitor();$('photoCameraStatus').textContent='Rilevamento automatico non disponibile: usa Scatta foto.'}
  },300);
 }
