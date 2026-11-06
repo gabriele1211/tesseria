@@ -98,3 +98,7 @@ body.scanner-open{overflow:hidden}
 
 /* v1.2.2: suggerimento installazione PWA, solo nel browser */
 .install-banner[hidden]{display:none!important}.install-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#e9f3ff;color:#12365b;border-bottom:2px solid #86b7ee;padding:12px max(16px,env(safe-area-inset-left));font-size:14px}.install-banner-copy{flex:1;min-width:220px}.install-banner-copy strong{font-size:15px}.install-banner-copy p{margin:5px 0 0;line-height:1.45}.install-banner-actions{display:flex;align-items:center;gap:8px}.install-banner-actions button{font-size:13px;padding:9px 12px;border-radius:10px}.install-banner-actions .install-banner-dismiss{background:#d8e4f3;color:#12365b;min-width:36px}
+
+/* 1.2.5: messaggi fotocamera con altezza fissa per evitare salti del video */
+#photoCameraStatus{min-height:3.6em;max-height:3.6em;overflow:hidden;line-height:1.8;display:block}
+.name-last{margin-top:20px!important}.name-last .field-help{display:block;font-weight:400;margin-top:5px}
