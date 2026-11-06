@@ -25,12 +25,21 @@ $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').oncl
 $('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(async c=>({...c,frontPhoto:await TesseriaPhotos.get(c.id)||null})));const blob=new Blob([JSON.stringify({app:'Tesseria',version:2,cards:withPhotos},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='tesseria-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){toast('Backup non riuscito: '+err.message)}};
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
 let zxingReader=null,scanToken=0;
-const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.2/umd/index.min.js';
+const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
 function stopCamera(){scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
 $('stopCamera').onclick=stopCamera;
 function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch{return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Codice acquisito: controlla il numero e salva la tessera.';toast('Codice acquisito');return true}
 function loadZXing(){if(window.ZXing?.BrowserMultiFormatReader)return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector('script[data-zxing]');if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria scanner non disponibile')),{once:true});return}const s=document.createElement('script');s.src=ZXING_URL;s.dataset.zxing='1';s.onload=resolve;s.onerror=()=>reject(Error('Impossibile caricare lo scanner: serve una connessione Internet al primo utilizzo'));document.head.append(s)})}
-async function scanNative(video,token){let detector;try{detector=new BarcodeDetector({formats:['ean_13','ean_8','code_39','itf']})}catch{return false}while(scanning&&token===scanToken){try{for(const b of await detector.detect(video)){if(acceptScan(b.format,b.rawValue))return true}}catch{return false}await new Promise(r=>setTimeout(r,220))}return true}
+async function scanNative(video,token){
+ let detector;
+ try{detector=new BarcodeDetector({formats:['ean_13','ean_8','code_39','itf']})}catch{return false}
+ const started=Date.now();
+ while(scanning&&token===scanToken&&Date.now()-started<2800){
+  try{for(const b of await detector.detect(video)){if(acceptScan(b.format,b.rawValue))return true}}catch{return false}
+  await new Promise(r=>setTimeout(r,180))
+ }
+ return false;
+}
 async function scanZXing(video,token){
  await loadZXing();if(!scanning||token!==scanToken)return;
  const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Motore di scansione non disponibile');
@@ -69,13 +78,14 @@ $('scan').onclick=async()=>{
   if(token!==scanToken){stream.getTracks().forEach(t=>t.stop());stream=null;return}
   const video=$('camera');video.srcObject=stream;video.hidden=false;$('stopCamera').hidden=false;
   await video.play();scanning=true;$('scanMessage').textContent='Inquadra il codice a barre.';
-  if(nativeAvailable){const handled=await scanNative(video,token);if(handled)return}
+  if(nativeAvailable){const handled=await scanNative(video,token);if(handled||!scanning||token!==scanToken)return;$('scanMessage').textContent='Ricerca avanzata del codice in corso…'}
   if(scanning&&token===scanToken)await scanZXing(video,token);
  }catch(err){
   const msg=scanErrorMessage(err);
   $('scanMessage').textContent=msg;
   // Se la fotocamera funziona, lasciala aperta per consentire un nuovo tentativo.
-  if(!scanning)stopCamera();
+  stopCamera();
+  $('scanMessage').textContent=msg;
   toast(msg);
  }
 };
