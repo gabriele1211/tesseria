@@ -13,3 +13,6 @@
 
 /* Guida sempre leggibile anche con iPhone in modalità scura */
 #setupGuide{color:#152a43!important;background:#fff!important;opacity:1!important}#setupGuide h2,#setupGuide p,#setupGuide strong{color:#152a43!important;opacity:1!important}#setupGuide .setup-step{background:#f2f7ff!important;border-color:#c8d8ea!important;color:#152a43!important}#setupGuide #cameraGuideResult{color:#173d68!important;font-weight:650}#setupGuide button:not(.secondary){background:#165a9f!important;color:#fff!important}#setupGuide button.secondary{background:#e4eaf3!important;color:#173d68!important}
+
+/* Inquadratura orizzontale per codici a barre, iPhone e Android */
+.scanner-frame{position:relative;width:100%;aspect-ratio:16/9;max-height:290px;background:#101923;border-radius:15px;overflow:hidden;margin:10px 0}.scanner-frame:has(video[hidden]){display:none}.scanner-frame video{display:block!important;width:100%;height:100%;max-height:none;object-fit:cover;border-radius:0}.scanner-target{position:absolute;inset:23% 6%;border:2px solid #ffd34e;border-radius:9px;pointer-events:none;box-shadow:0 0 0 100vmax #0003}.scanner-target span{position:absolute;top:50%;left:4%;right:4%;height:2px;background:#ff5252;box-shadow:0 0 8px #ff5252}#scanMessage{font-weight:600}
