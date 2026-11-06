@@ -124,49 +124,48 @@ function enhanceOcrImage(src){
  });
 }
 function selectMerchantName(data){
- const lines=Array.isArray(data?.lines)?data.lines:[];
- const entries=lines.map(l=>({text:String(l.text||'').replace(/[^\\p{L}\\p{N} &'’.-]/gu,' ').replace(/\\s+/g,' ').trim(),confidence:Number(l.confidence)||0}))
-  .filter(l=>l.text.length>=3&&/[A-Za-zÀ-ÿ]{3}/.test(l.text)&&!/^\\d+$/.test(l.text));
- const noise=/^(www\\.|https?:|tel\\.|telefono|telefono:|email|partita iva|p\\.?iva|codice|tessera|card|fidelity|punti|scadenza)/i;
- const candidates=entries.filter(l=>!noise.test(l.text)).map((l,i)=>({...l,score:l.confidence+Math.min(l.text.length,25)*.45-Math.min(i,5)*2}));
- candidates.sort((a,b)=>b.score-a.score);
- if(!candidates.length)return '';
- const best=candidates[0],idx=entries.indexOf(best);
- // Se la riga immediatamente successiva completa il nome, includila.
- let suggestion=best.text;
- const next=entries.find((l,i)=>i>0&&entries[i-1].text===best.text);
- if(next&&next.confidence>=35&&suggestion.length+next.text.length<70&&!noise.test(next.text))suggestion+=' '+next.text;
- return suggestion.slice(0,80).trim();
+ const raw=String(data?.text||'');
+ const clean=s=>String(s||'').replace(/[^\p{L}\p{N} &'’.-]/gu,' ').replace(/\s+/g,' ').trim();
+ const lines=raw.split(/\r?\n/).map(clean).filter(Boolean);
+ const valid=lines.filter(s=>{
+  const words=s.match(/\p{L}{3,}/gu)||[];
+  return words.length>=1 && words.join('').length>=5 && !/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(s);
+ });
+ if(!valid.length)return '';
+ const ranked=valid.map((s,i)=>({s,score:(s.match(/\p{L}{3,}/gu)||[]).length*8+Math.min(s.length,35)-i*2})).sort((a,b)=>b.score-a.score);
+ const selected=ranked[0].s,at=lines.indexOf(selected);
+ const next=lines[at+1];
+ const result=next && next.length>=5 && next.length<35 && /\p{L}{3,}/u.test(next) && !/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(next)?selected+' '+next:selected;
+ return result.slice(0,80);
 }
 async function recognizePhotoName(src){
  if(ocrBusy)return;
  const status=$('photoOcrStatus');ocrBusy=true;$('retryOcr').disabled=true;
- status.textContent='IA locale: preparo la fotografia per leggere il nome…';
+ status.textContent='Lettura delle scritte in corso…';
  try{
   if(!window.Tesseract){
    await new Promise((resolve,reject)=>{
     const existing=document.querySelector('script[data-ocr]');
     if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria OCR non disponibile')),{once:true});return}
     const s=document.createElement('script');s.dataset.ocr='1';s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-    s.onload=resolve;s.onerror=()=>reject(Error('Connessione necessaria per il primo caricamento OCR'));document.head.append(s);
+    s.onload=resolve;s.onerror=()=>reject(Error('Connessione necessaria per OCR'));document.head.append(s);
    });
   }
-  const enhanced=await enhanceOcrImage(src);
-  status.textContent='IA locale: riconoscimento delle scritte…';
-  const result=await window.Tesseract.recognize(enhanced,'ita+eng');
-  const data=result?.data||{};
-  let suggestion=selectMerchantName(data);
+  const original=await window.Tesseract.recognize(src,'ita+eng',{});
+  let suggestion=selectMerchantName(original.data);
   if(!suggestion){
-   const lines=String(data.text||'').split(/\\n/).map(t=>t.trim()).filter(t=>/[A-Za-zÀ-ÿ]{3}/.test(t));
-   suggestion=lines.slice(0,2).join(' ').replace(/[^\\p{L}\\p{N} &'’.-]/gu,' ').slice(0,80).trim();
+   const enhanced=await enhanceOcrImage(src);
+   const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
+   suggestion=selectMerchantName(second.data);
   }
   if(suggestion){
-   if(!$('name').value.trim())$('name').value=suggestion;
-   status.textContent='Nome rilevato: '+suggestion+'. Controllalo prima di salvare.';
-  }else status.textContent='Non ho riconosciuto un nome leggibile. Puoi scriverlo manualmente o riprovare.';
- }catch(err){status.textContent='OCR non disponibile: '+String(err?.message||err).slice(0,90)+'. Puoi inserire il nome manualmente.'}
+   if(!$('name').value.trim()||/^(?:[A-Za-z]\s+){2,}[A-Za-z]?$/i.test($('name').value.trim()))$('name').value=suggestion;
+   status.textContent='Nome suggerito: '+suggestion+'. Verifica prima di salvare.';
+  }else status.textContent='Testo non riconosciuto con sufficiente affidabilità. Scrivi il nome manualmente.';
+ }catch(err){status.textContent='OCR non disponibile: '+String(err?.message||err).slice(0,90)}
  finally{ocrBusy=false;$('retryOcr').disabled=false}
 }
+
 $('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(photoDraft);else toast('Prima scatta una fotografia')};
 
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
