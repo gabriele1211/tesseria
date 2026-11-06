@@ -24,87 +24,76 @@ $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(
 $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').onclick=()=>{if(confirm('Eliminare definitivamente questa tessera?')){cards=cards.filter(c=>c.id!==current);if(save()){TesseriaPhotos.del(current).catch(()=>{});show('home')}}};$('rotate').onclick=()=>$('detail').classList.toggle('rotated');
 $('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(async c=>({...c,frontPhoto:await TesseriaPhotos.get(c.id)||null})));const blob=new Blob([JSON.stringify({app:'Tesseria',version:2,cards:withPhotos},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='tesseria-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){toast('Backup non riuscito: '+err.message)}};
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
-let zxingReader=null,scanToken=0,ean8Evidence=new Map();
-const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
-function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message;}
-function stopCamera(){const modal=$('scannerModal');if(modal&&!modal.hidden){modal.hidden=true;document.body.classList.remove('scanner-open')}ean8Evidence.clear();scanning=false;scanToken++;if(zxingReader){try{zxingReader.reset()}catch{}zxingReader=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}const video=$('camera');video.pause();video.srcObject=null;video.hidden=true;$('stopCamera').hidden=true}
+let html5Scanner=null,scanToken=0,scanEvidence=new Map();
+const SCANNER_URL='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message}
+function stopCamera(){
+ const modal=$('scannerModal');if(modal){modal.hidden=true;document.body.classList.remove('scanner-open')}
+ scanToken++;scanning=false;scanEvidence.clear();
+ const reader=html5Scanner;html5Scanner=null;
+ if(reader){Promise.resolve(reader.stop()).catch(()=>{}).then(()=>reader.clear()).catch(()=>{})}
+ if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+ const video=$('camera');if(video){video.pause();video.srcObject=null;video.hidden=true}
+}
 $('stopCamera').onclick=stopCamera;
 $('scannerDone').onclick=stopCamera;
 $('scannerModal').addEventListener('click',e=>{if(e.target===$('scannerModal'))stopCamera()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('scannerModal').hidden)stopCamera()});
 function validatedCandidate(format,value){
- const normalized=String(value||'').trim(),fmt=String(format||'').toUpperCase();
+ const v=String(value||'').trim(),fmt=String(format||'').toUpperCase();
  if(fmt==='EAN_13'||fmt==='EAN13'||fmt==='EAN_8'||fmt==='EAN8'){
   const len=fmt.includes('13')?13:8;
-  if(normalized.length!==len||![...normalized].every(ch=>ch>='0'&&ch<='9'))return false;
-  const digits=[...normalized].map(Number),body=digits.slice(0,-1);
-  const sum=body.reduce((acc,d,i)=>acc+d*(len===13?(i%2===0?1:3):(i%2===0?3:1)),0);
-  if((10-sum%10)%10!==digits[len-1])return false;
+  if(v.length!==len||![...v].every(ch=>ch>='0'&&ch<='9'))return false;
+  const digits=[...v].map(Number),sum=digits.slice(0,-1).reduce((acc,d,i)=>acc+d*(len===13?(i%2===0?1:3):(i%2===0?3:1)),0);
+  return (10-sum%10)%10===digits[len-1];
  }
- return true;
+ return !!v;
 }
-function acceptCandidateSafely(format,value){
- if(!validatedCandidate(format,value))return false;
- const fmt=String(format||'').toUpperCase();
- if(fmt==='EAN_8'||fmt==='EAN8'){
-  const now=Date.now(),key=String(value);
-  for(const [k,v] of ean8Evidence)if(now-v.last>8000)ean8Evidence.delete(k);
-  const item=ean8Evidence.get(key)||{count:0,last:now};
-  item.count++;item.last=now;ean8Evidence.set(key,item);
-  scannerStatus('EAN-8 rilevato · conferma '+Math.min(item.count,3)+'/3');
-  if(item.count<3)return false;
- }
- return acceptScan(format,value);
+function acceptScan(format,value){
+ const mapping={EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF',EAN13:'EAN13',EAN8:'EAN8',CODE39:'CODE39'};
+ const fmt=mapping[format];if(!fmt){scannerStatus('Codice '+format+' riconosciuto ma non ancora riproducibile da Tesseria');return false}
+ try{encode(fmt,value)}catch{scannerStatus('Codice rilevato ma non riproducibile: inserisci il numero manualmente');return false}
+ $('format').value=fmt;$('number').value=value;stopCamera();
+ $('scanMessage').textContent='Numero letto: confronta ogni cifra con la tessera prima di salvare.';
+ toast('Numero letto: verifica le cifre');return true;
 }
-function acceptScan(format,value){const mapping={ean_13:'EAN13',ean_8:'EAN8',code_39:'CODE39',itf:'ITF',EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF'};const fmt=mapping[format];if(!fmt)return false;try{encode(fmt,value)}catch(err){$('scanMessage').textContent='Codice individuato ma formato non riproducibile: '+fmt+'. Inserisci il numero manualmente.';return false}$('format').value=fmt;$('number').value=value;stopCamera();$('scanMessage').textContent='Numero letto: confronta ogni cifra con la tessera prima di salvare.';toast('Numero letto: verifica le cifre');return true}
-function loadZXing(){if(window.ZXing?.BrowserMultiFormatReader)return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector('script[data-zxing]');if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria scanner non disponibile')),{once:true});return}const s=document.createElement('script');s.src=ZXING_URL;s.dataset.zxing='1';s.onload=resolve;s.onerror=()=>reject(Error('Impossibile caricare lo scanner: serve una connessione Internet al primo utilizzo'));document.head.append(s)})}
-async function scanNative(video,token){
- let detector;
- try{detector=new BarcodeDetector({formats:['ean_13','ean_8','code_39','itf']})}catch{return false}
- const started=Date.now();
- while(scanning&&token===scanToken&&Date.now()-started<2800){
-  try{for(const b of await detector.detect(video)){if(acceptCandidateSafely(b.format,b.rawValue))return true}}catch{return false}
-  await new Promise(r=>setTimeout(r,180))
- }
- return false;
+function loadScanner(){
+ if(window.Html5Qrcode?.SupportedFormats)return Promise.resolve();
+ return new Promise((resolve,reject)=>{
+  const existing=document.querySelector('script[data-html5scanner]');
+  if(existing){if(existing.dataset.loaded==='1')return resolve();existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(Error('Libreria scanner non disponibile')),{once:true});return}
+  const s=document.createElement('script');s.src=SCANNER_URL;s.dataset.html5scanner='1';
+  s.onload=()=>{s.dataset.loaded='1';resolve()};s.onerror=()=>reject(Error('Impossibile caricare il lettore: verifica la connessione Internet'));
+  document.head.append(s);
+ });
 }
-async function scanZXing(video,token){
- await loadZXing();if(!scanning||token!==scanToken)return;
- const ZXing=window.ZXing;if(!ZXing?.BrowserMultiFormatReader)throw Error('Lettore codici non disponibile');
- const formats=[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.CODE_39,ZXing.BarcodeFormat.ITF];
- const hints=new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,formats],[ZXing.DecodeHintType.TRY_HARDER,true]]);
- const reader=new ZXing.BrowserMultiFormatReader(hints,250);zxingReader=reader;scannerStatus('Lettore avanzato attivo · in attesa di un codice');
- $('scanMessage').textContent='Lettore attivo. Avvicina lentamente il codice, tenendolo orizzontale.';
- let attempts=0;
- const onResult=(result,error)=>{
-  if(!scanning||token!==scanToken)return;
-  if(result){
-   const fmt=ZXing.BarcodeFormat[result.getBarcodeFormat()];
-   if(!validatedCandidate(fmt,result.getText())){scannerStatus('Lettura scartata: controllo codice non valido');return;}
-   if(!acceptCandidateSafely(fmt,result.getText()))return;
-   return;
-  }
-  attempts++;
-  if(attempts%15===0)scannerStatus('Lettore avanzato · tentativi: '+attempts);
-  if(attempts===25)$('scanMessage').textContent='Lettore attivo, nessun codice riconosciuto. Riempi la cornice con tutte le barre.';
-  if(error&&attempts%50===0&&error.name!=='NotFoundException'&&error.name!=='ChecksumException'&&error.name!=='FormatException'){
-   $('scanMessage').textContent='Lettore attivo, verifica in corso. '+String(error.name||'').slice(0,40);
-  }
+async function startHtml5Scanner(token){
+ await loadScanner();if(token!==scanToken)return;
+ const H=window.Html5Qrcode,F=window.Html5QrcodeSupportedFormats;
+ if(!H||!F)throw Error('Motore scanner non disponibile');
+ const formats=[F.EAN_13,F.EAN_8,F.CODE_39,F.ITF,F.QR_CODE,F.CODE_128];
+ const reader=new H('html5Reader',{formatsToSupport:formats,verbose:false,useBarCodeDetectorIfSupported:false});
+ html5Scanner=reader;
+ const onSuccess=(decodedText,decodedResult)=>{
+  if(token!==scanToken||!scanning)return;
+  const raw=decodedResult?.result?.format?.formatName||decodedResult?.result?.format||'';
+  const fmt=String(raw).toUpperCase();
+  const value=String(decodedText||'').trim();
+  if(!validatedCandidate(fmt,value)){scannerStatus('Lettura non valida, riprova');return}
+  const key=fmt+':'+value,now=Date.now();
+  for(const [k,v] of scanEvidence)if(now-v.last>6000)scanEvidence.delete(k);
+  const item=scanEvidence.get(key)||{count:0,last:now};item.count++;item.last=now;scanEvidence.set(key,item);
+  // Evita falsi EAN-8 estratti da porzioni di un EAN-13.
+  const required=fmt==='EAN_8'?3:1;
+  if(item.count<required){scannerStatus('Codice '+fmt+' · conferma '+item.count+'/'+required);return}
+  scannerStatus('Codice '+fmt+' rilevato');
+  acceptScan(fmt,value);
  };
- if(typeof reader.decodeFromVideoDevice==='function'){
-  // La libreria gestisce direttamente il flusso video e i callback di decodifica.
-  // Rilascia la precedente acquisizione per evitare due stream concorrenti su iOS.
-  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
-  video.pause();video.srcObject=null;
-  scannerStatus('Collegamento lettore alla fotocamera…');
-  await reader.decodeFromVideoDevice(undefined,video,onResult);
-  if(scanning&&token===scanToken)scannerStatus('Lettore collegato · ricerca codici in corso');
- }else if(typeof reader.decodeFromVideoElementContinuously==='function'){
-  await reader.decodeFromVideoElementContinuously(video,onResult);
- }else throw Error('Il motore di scansione non supporta il video');
- if(scanning&&token===scanToken){
-  setTimeout(()=>{if(scanning&&token===scanToken&&attempts===0)scannerStatus('Nessun fotogramma elaborato dal lettore. Verifica il motore video.');},5500);
- }
+ scanning=true;scannerStatus('Apertura fotocamera…');
+ try{
+  await reader.start({facingMode:'environment'},{fps:12,qrbox:(w,h)=>({width:Math.floor(w*.9),height:Math.floor(Math.min(h*.75,w*.42))}),aspectRatio:1.777778,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}},onSuccess,()=>{});
+ }catch(err){if(token!==scanToken)return;throw err}
+ if(token===scanToken&&scanning)scannerStatus('Fotocamera attiva · inquadra il codice');
 }
 function scanErrorMessage(error){
  const name=error?.name||'',message=String(error?.message||'');
@@ -118,28 +107,10 @@ function scanErrorMessage(error){
 $('scan').onclick=async()=>{
  if(scanning)return;
  $('scannerModal').hidden=false;document.body.classList.add('scanner-open');
- if(!navigator.mediaDevices?.getUserMedia){$('scanMessage').textContent='Fotocamera non disponibile: usa Safari o Chrome con connessione HTTPS.';return}
- ean8Evidence.clear();const token=++scanToken;
- scannerStatus('Avvio scanner…');
- try{
-  // Carica il motore prima di aprire la fotocamera, così gli errori non la richiudono subito.
-  const nativeAvailable='BarcodeDetector'in window;
-  if(!nativeAvailable){scannerStatus('Caricamento lettore codici…');await loadZXing();scannerStatus('Lettore caricato, apertura fotocamera…')}
-  if(token!==scanToken)return;
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-  if(token!==scanToken){stream.getTracks().forEach(t=>t.stop());stream=null;return}
-  const video=$('camera');video.srcObject=stream;video.hidden=false;$('stopCamera').hidden=false;
-  await video.play();scanning=true;scannerStatus('Fotocamera attiva · '+video.videoWidth+' × '+video.videoHeight);$('scanMessage').textContent='Inquadra il codice a barre.';
-  if(nativeAvailable){scannerStatus('Lettore nativo: ricerca codice…');const handled=await scanNative(video,token);if(handled||!scanning||token!==scanToken)return;$('scanMessage').textContent='Ricerca avanzata del codice in corso…'}
-  if(scanning&&token===scanToken){scannerStatus('Avvio lettore avanzato…');await scanZXing(video,token)}
- }catch(err){
-  const msg=scanErrorMessage(err);
-  $('scanMessage').textContent=msg;
-  // Se la fotocamera funziona, lasciala aperta per consentire un nuovo tentativo.
-  stopCamera();scannerStatus('Errore scanner: '+(err?.name||'Errore')+' · '+String(err?.message||'').slice(0,110));
-  $('scanMessage').textContent=msg;
-  toast(msg);
- }
+ $('scanMessage').textContent='';scannerStatus('Preparazione lettore…');
+ const token=++scanToken;
+ try{await startHtml5Scanner(token)}
+ catch(err){if(token!==scanToken)return;const msg=scanErrorMessage(err);scannerStatus(msg);$('scanMessage').textContent=String(err?.message||'').slice(0,120);scanning=false;toast(msg)}
 };
 load();show('home');
 (function setupOnboarding(){
