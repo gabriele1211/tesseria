@@ -105,3 +105,7 @@ body.scanner-open{overflow:hidden}
 
 /* v1.2.6: codice EAN con geometria intrinseca, senza stiramento */
 .barcodebox{overflow:hidden;padding:22px 12px 16px}.barcodebox svg{display:block;width:100%;height:auto;min-height:0;max-width:540px;margin:0 auto;aspect-ratio:auto}.barcodebox p[hidden]{display:none!important}
+
+/* v1.2.7: occupa la larghezza disponibile, mantiene i moduli EAN e la quiet zone */
+#detail .barcodebox{padding:12px 5px 8px}
+#detail .barcodebox svg{display:block;width:100%;max-width:none;min-height:0;height:auto;margin:0 auto;object-fit:fill}
