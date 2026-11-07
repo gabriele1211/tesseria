@@ -243,14 +243,52 @@ function rectifyCard(img,quad){
  }
  oc.putImageData(frame,0,0);return out.toDataURL('image/jpeg',.9);
 }
+// Segmentazione geometrica di sicurezza: individua una tessera chiara su fondo scuro.
+function detectBrightCardBounds(img){
+ const canvas=document.createElement('canvas'),w=320,h=Math.round(320*img.height/img.width);
+ canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+ const p=ctx.getImageData(0,0,w,h).data;
+ const lum=(x,y)=>{const k=(y*w+x)*4;return .299*p[k]+.587*p[k+1]+.114*p[k+2]};
+ const bg=[lum(2,2),lum(w-3,2),lum(2,h-3),lum(w-3,h-3)].sort((x,y)=>x-y);
+ const dark=(bg[1]+bg[2])/2;
+ if(dark>115)return null;
+ const xs=[],ys=[];
+ for(let y=3;y<h-3;y+=3)for(let x=3;x<w-3;x+=3){
+  if(lum(x,y)>dark+65){xs.push(x);ys.push(y)}
+ }
+ if(xs.length<90)return null;
+ xs.sort((x,y)=>x-y);ys.sort((x,y)=>x-y);
+ const q=(arr,f)=>arr[Math.floor((arr.length-1)*f)];
+ const left=q(xs,.025),right=q(xs,.975),top=q(ys,.025),bottom=q(ys,.975);
+ if(right-left<w*.48||bottom-top<h*.45)return null;
+ const pad=2;
+ return [{x:Math.max(0,left-pad)*img.width/w,y:Math.max(0,top-pad)*img.height/h},
+ {x:Math.min(w-1,right+pad)*img.width/w,y:Math.max(0,top-pad)*img.height/h},
+ {x:Math.min(w-1,right+pad)*img.width/w,y:Math.min(h-1,bottom+pad)*img.height/h},
+ {x:Math.max(0,left-pad)*img.width/w,y:Math.min(h-1,bottom+pad)*img.height/h}];
+}
+function commercialColorSuggestion(src,ocrTexts){
+ // Profilo visivo prudente: palette arancione e marchio SELEX/Famila nel testo OCR.
+ const combined=normalizeBrandText(ocrTexts.join(' '));
+ if(!/selex|fam|mila|famil|famiglia/.test(combined))return '';
+ return new Promise(resolve=>{
+  const img=new Image();img.onload=()=>{
+   const c=document.createElement('canvas');c.width=96;c.height=60;
+   const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,96,60);
+   const p=x.getImageData(0,0,96,60).data;let orange=0;
+   for(let i=0;i<p.length;i+=4)if(p[i]>145&&p[i+1]>40&&p[i+1]<180&&p[i+2]<105&&p[i]>p[i+1]*1.5)orange++;
+   resolve(orange>850?'Famila Club':'');
+  };img.onerror=()=>resolve('');img.src=src;
+ });
+}
 async function preparePhotoCrop(src){
  pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
  try{
-  const corners=detectCardCorners(cropImage);
+  const corners=detectBrightCardBounds(cropImage)||detectCardCorners(cropImage);
   if(corners){
    const cx=corners.reduce((v,p)=>v+p.x,0)/4,cy=corners.reduce((v,p)=>v+p.y,0)/4;
-   const safeCorners=corners.map(p=>({x:Math.max(0,Math.min(cropImage.width-1,cx+(p.x-cx)*1.055)),y:Math.max(0,Math.min(cropImage.height-1,cy+(p.y-cy)*1.055))}));
+   const safeCorners=corners.map(p=>({x:Math.max(0,Math.min(cropImage.width-1,cx+(p.x-cx)*1.015)),y:Math.max(0,Math.min(cropImage.height-1,cy+(p.y-cy)*1.015))}));
    const corrected=rectifyCard(cropImage,safeCorners);
    pendingPhoto=corrected;cropImage=new Image();cropImage.src=corrected;await cropImage.decode();
    $('cropDetectionStatus').textContent='Quattro angoli individuati: prospettiva corretta automaticamente. Controlla il risultato.';
@@ -417,8 +455,8 @@ async function recognizePhotoName(src){
    if(suggestion)source='marchio riconosciuto';
    else {
     const alt=await window.Tesseract.recognize(src,'eng',{tessedit_pageseg_mode:11});
-    suggestion=brandSuggestion(alt.data)||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
-    if(brandSuggestion(alt.data))source='marchio riconosciuto';
+    suggestion=brandSuggestion(alt.data)||await commercialColorSuggestion(src,[original.data?.text,second.data?.text,alt.data?.text])||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
+    if(suggestion==='Famila Club'||brandSuggestion(alt.data))source='marchio riconosciuto';
    }
   }
   if(suggestion){
