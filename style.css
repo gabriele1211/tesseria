@@ -109,3 +109,6 @@ body.scanner-open{overflow:hidden}
 /* v1.2.7: occupa la larghezza disponibile, mantiene i moduli EAN e la quiet zone */
 #detail .barcodebox{padding:12px 5px 8px}
 #detail .barcodebox svg{display:block;width:100%;max-width:none;min-height:0;height:auto;margin:0 auto;object-fit:fill}
+
+/* v1.2.8: elimina il vecchio limite max-height:220px che rimpiccioliva l'intero SVG */
+#detail .barcodebox svg{width:100%!important;height:auto!important;max-height:none!important;max-width:none!important;min-height:0!important;display:block!important;object-fit:contain!important}
