@@ -600,7 +600,7 @@ function scanGuidance(message,count=0,total=3){const label=$('scanGuidanceText')
 function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message}
 function stopCamera(){
  const modal=$('scannerModal');if(modal){modal.hidden=true;document.body.classList.remove('scanner-open')}
- scanToken++;scanning=false;scanGuidance('Porta tutte le barre dentro la cornice');scanEvidence.clear();scanConfirmed=null;$('scanReview').hidden=true;
+ scanToken++;scanning=false;scanGuidance('Cornice gialla: avvicina o allontana lentamente');scanEvidence.clear();scanConfirmed=null;$('scanReview').hidden=true;
  const reader=html5Scanner;html5Scanner=null;
  if(reader){Promise.resolve(reader.stop()).catch(()=>{}).then(()=>reader.clear()).catch(()=>{})}
  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
@@ -625,7 +625,7 @@ function acceptScan(format,value){
  const mapping={EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF',EAN13:'EAN13',EAN8:'EAN8',CODE39:'CODE39'};
  const fmt=mapping[format];if(!fmt){scannerStatus('Codice '+format+' riconosciuto ma non ancora riproducibile da Tesseria');return false}
  try{encode(fmt,value)}catch{scannerStatus('Codice rilevato ma non riproducibile: inserisci il numero manualmente');return false}
- scanGuidance('Codice verificato · controlla le cifre',3,3);scanConfirmed={format:fmt,value};
+ scanGuidance('Cornice verde: codice verificato · controlla le cifre',3,3);scanConfirmed={format:fmt,value};
  $('scanReviewNumber').textContent=value;
  $('scanReviewFormat').textContent='Formato '+fmt+' · confronta tutte le cifre, soprattutto la prima.';
  $('scanReview').hidden=false;
@@ -667,11 +667,11 @@ async function startHtml5Scanner(token){
   scannerStatus('Codice '+fmt+' rilevato');
   acceptScan(fmt,value);
  };
- scanning=true;scanGuidance('Allinea tutte le barre, inclusi i margini');scannerStatus('Apertura fotocamera…');
+ scanning=true;scanGuidance('Cornice gialla: includi tutte le barre e regola la distanza');scannerStatus('Apertura fotocamera…');
  try{
   await reader.start({facingMode:'environment'},{fps:12,qrbox:(w,h)=>({width:Math.floor(w*.9),height:Math.floor(Math.min(h*.75,w*.42))}),aspectRatio:1.777778,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}},onSuccess,()=>{});
  }catch(err){if(token!==scanToken)return;throw err}
- if(token===scanToken&&scanning){scanGuidance('Avvicina il codice senza tagliare le estremità');scannerStatus('Fotocamera attiva · inquadra il codice')}
+ if(token===scanToken&&scanning){scanGuidance('Cornice gialla: avvicina o allontana senza tagliare le barre');scannerStatus('Fotocamera attiva · inquadra il codice')}
 }
 function scanErrorMessage(error){
  const name=error?.name||'',message=String(error?.message||'');
@@ -684,7 +684,7 @@ function scanErrorMessage(error){
 }
 $('scan').onclick=async()=>{
  if(scanning)return;
- $('scannerModal').hidden=false;document.body.classList.add('scanner-open');$('scanReview').hidden=true;scanConfirmed=null;scanEvidence.clear();scanGuidance('Porta tutte le barre dentro la cornice');
+ $('scannerModal').hidden=false;document.body.classList.add('scanner-open');$('scanReview').hidden=true;scanConfirmed=null;scanEvidence.clear();scanGuidance('Cornice gialla: avvicina o allontana lentamente');
  $('scanMessage').textContent='';scannerStatus('Preparazione lettore…');
  const token=++scanToken;
  try{await startHtml5Scanner(token)}
