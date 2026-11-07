@@ -475,10 +475,11 @@ $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').oncl
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
 let html5Scanner=null,scanToken=0,scanEvidence=new Map();
 const SCANNER_URL='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+function scanGuidance(message,count=0,total=3){const label=$('scanGuidanceText'),dots=$('scanCountdown'),icon=$('scanGuidanceIcon');if(label)label.textContent=message;if(dots)dots.textContent=Array.from({length:total},(_,i)=>i<count?'●':'○').join(' ');if(icon)icon.textContent=count?'✓':'◎';const frame=$('scannerFrame');if(frame){frame.classList.toggle('scan-aligning',count>0&&count<total);frame.classList.toggle('scan-verified',count>=total)}}
 function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message}
 function stopCamera(){
  const modal=$('scannerModal');if(modal){modal.hidden=true;document.body.classList.remove('scanner-open')}
- scanToken++;scanning=false;scanEvidence.clear();scanConfirmed=null;$('scanReview').hidden=true;
+ scanToken++;scanning=false;scanGuidance('Porta tutte le barre dentro la cornice');scanEvidence.clear();scanConfirmed=null;$('scanReview').hidden=true;
  const reader=html5Scanner;html5Scanner=null;
  if(reader){Promise.resolve(reader.stop()).catch(()=>{}).then(()=>reader.clear()).catch(()=>{})}
  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
@@ -503,7 +504,7 @@ function acceptScan(format,value){
  const mapping={EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF',EAN13:'EAN13',EAN8:'EAN8',CODE39:'CODE39'};
  const fmt=mapping[format];if(!fmt){scannerStatus('Codice '+format+' riconosciuto ma non ancora riproducibile da Tesseria');return false}
  try{encode(fmt,value)}catch{scannerStatus('Codice rilevato ma non riproducibile: inserisci il numero manualmente');return false}
- scanConfirmed={format:fmt,value};
+ scanGuidance('Codice verificato · controlla le cifre',3,3);scanConfirmed={format:fmt,value};
  $('scanReviewNumber').textContent=value;
  $('scanReviewFormat').textContent='Formato '+fmt+' · confronta tutte le cifre, soprattutto la prima.';
  $('scanReview').hidden=false;
@@ -535,21 +536,21 @@ async function startHtml5Scanner(token){
   const raw=decodedResult?.result?.format?.formatName||decodedResult?.result?.format||'';
   const fmt=String(raw).toUpperCase();
   const value=String(decodedText||'').trim();
-  if(!validatedCandidate(fmt,value)){scannerStatus('Lettura non valida, riprova');return}
+  if(!validatedCandidate(fmt,value)){scanGuidance('Codice parziale o non valido · allontana leggermente');scannerStatus('Lettura non valida, riprova');return}
   const key=fmt+':'+value,now=Date.now();
   for(const [k,v] of scanEvidence)if(now-v.last>6000)scanEvidence.delete(k);
   const item=scanEvidence.get(key)||{count:0,last:now};item.count++;item.last=now;scanEvidence.set(key,item);
   // Evita falsi EAN-8 estratti da porzioni di un EAN-13.
   const required=fmt==='EAN_8'?4:(fmt==='EAN_13'?3:2);
-  if(item.count<required){scannerStatus('Verifica lettura '+item.count+'/'+required+' · mantieni il codice inquadrato');return}
+  if(item.count<required){scanGuidance('Mantieni fermo · verifica '+item.count+' di '+required,item.count,required);scannerStatus('Verifica lettura '+item.count+'/'+required+' · mantieni il codice inquadrato');return}
   scannerStatus('Codice '+fmt+' rilevato');
   acceptScan(fmt,value);
  };
- scanning=true;scannerStatus('Apertura fotocamera…');
+ scanning=true;scanGuidance('Allinea tutte le barre, inclusi i margini');scannerStatus('Apertura fotocamera…');
  try{
   await reader.start({facingMode:'environment'},{fps:12,qrbox:(w,h)=>({width:Math.floor(w*.9),height:Math.floor(Math.min(h*.75,w*.42))}),aspectRatio:1.777778,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}},onSuccess,()=>{});
  }catch(err){if(token!==scanToken)return;throw err}
- if(token===scanToken&&scanning)scannerStatus('Fotocamera attiva · inquadra il codice');
+ if(token===scanToken&&scanning){scanGuidance('Avvicina il codice senza tagliare le estremità');scannerStatus('Fotocamera attiva · inquadra il codice')}
 }
 function scanErrorMessage(error){
  const name=error?.name||'',message=String(error?.message||'');
@@ -562,7 +563,7 @@ function scanErrorMessage(error){
 }
 $('scan').onclick=async()=>{
  if(scanning)return;
- $('scannerModal').hidden=false;document.body.classList.add('scanner-open');$('scanReview').hidden=true;scanConfirmed=null;scanEvidence.clear();
+ $('scannerModal').hidden=false;document.body.classList.add('scanner-open');$('scanReview').hidden=true;scanConfirmed=null;scanEvidence.clear();scanGuidance('Porta tutte le barre dentro la cornice');
  $('scanMessage').textContent='';scannerStatus('Preparazione lettore…');
  const token=++scanToken;
  try{await startHtml5Scanner(token)}
