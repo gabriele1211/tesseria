@@ -220,3 +220,16 @@ body>header .header-add[hidden]{display:none!important}
 #home .cards{margin-top:10px}
 #home .reorder-help{margin:2px 0 6px;min-height:0}
 @media(max-width:440px){body>header{padding-left:9px!important;padding-right:9px!important}body>header img{width:43px!important;height:43px!important}body>header h1{font-size:clamp(17px,5vw,22px)!important}body>header small{font-size:10px!important}body>header .iconbtn{padding:8px!important;min-width:36px!important;font-size:20px!important}body>header .header-add{padding:9px 7px!important}}
+
+/* v1.2.38: barcode fullscreen ad alto contrasto, senza intestazione e footer */
+#barcodeTapTarget{cursor:zoom-in;touch-action:manipulation}
+#barcodeTapTarget:focus-visible{outline:3px solid #57a9f7;outline-offset:3px}
+.barcode-fullscreen[hidden]{display:none!important}
+.barcode-fullscreen{position:fixed;inset:0;z-index:99999;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:max(18px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));cursor:zoom-out;touch-action:manipulation}
+.barcode-fullscreen-content{width:100%;max-width:1000px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+#barcodeFullscreenImage{width:100%;display:flex;justify-content:center;align-items:center}
+#barcodeFullscreenImage svg{display:block;width:100%!important;height:auto!important;max-height:72dvh;aspect-ratio:auto!important;overflow:visible}
+#barcodeFullscreenNumber{font-size:clamp(19px,5vw,30px);letter-spacing:.1em;color:#111;text-align:center;margin:0}
+#barcodeFullscreenNumber:empty{display:none}
+.barcode-fullscreen-hint{color:#666;font-size:clamp(12px,3vw,16px);text-align:center;margin-top:12px}
+body.barcode-fullscreen-open{overflow:hidden}
