@@ -20,16 +20,25 @@ function drawBarcode(fmt,raw){
  svg.replaceChildren();svg.setAttribute('preserveAspectRatio','xMidYMid meet');
  const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);for(const [k,val] of Object.entries(attrs))e.setAttribute(k,String(val));if(text!==undefined)e.textContent=text;svg.append(e);return e};
  if(fmt==='EAN13'||fmt==='EAN8'){
-  const is13=fmt==='EAN13',quiet=14,total=v.length+quiet*2;
-  svg.setAttribute('viewBox',`0 0 ${total} 92`);
-  add('rect',{width:total,height:92,fill:'#fff'});
+  const is13=fmt==='EAN13',leftQuiet=is13?11:7,rightQuiet=7,total=v.length+leftQuiet+rightQuiet;
+  // Moduli EAN esatti, con aree bianche minime di sicurezza per i lettori.
+  svg.setAttribute('viewBox',`0 0 ${total} 88`);
+  svg.setAttribute('width',String(total));svg.setAttribute('height','88');
+  svg.style.aspectRatio=`${total} / 88`;
+  add('rect',{width:total,height:88,fill:'#fff'});
   for(let i=0;i<v.length;i++)if(v[i]==='1'){
    const guard=is13?(i<3||(i>=45&&i<50)||i>=92):(i<3||(i>=31&&i<36)||i>=64);
-   add('rect',{x:i+quiet,y:5,width:1,height:guard?68:61,fill:'#000'});
+   add('rect',{x:i+leftQuiet,y:3,width:1,height:guard?68:61,fill:'#000'});
   }
-  const label=(x,text,size=9)=>add('text',{x,y:84,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':size,fill:'#111'},text);
-  if(is13){label(6,raw[0],10);label(quiet+24,raw.slice(1,7),9);label(quiet+71,raw.slice(7),9)}
-  else{label(quiet+17,raw.slice(0,4),9);label(quiet+50,raw.slice(4),9)}
+  const label=(x,text,size=8.6)=>add('text',{x,y:81,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':size,fill:'#111'},text);
+  if(is13){
+   label(5,raw[0],9);
+   for(let i=0;i<6;i++)label(leftQuiet+3+7*i+3.5,raw[i+1]);
+   for(let i=0;i<6;i++)label(leftQuiet+50+7*i+3.5,raw[i+7]);
+  }else{
+   for(let i=0;i<4;i++)label(leftQuiet+3+7*i+3.5,raw[i]);
+   for(let i=0;i<4;i++)label(leftQuiet+36+7*i+3.5,raw[i+4]);
+  }
   $('detailNumber').hidden=true;
  }else{
   let bars=[];
