@@ -114,3 +114,5 @@ body.scanner-open{overflow:hidden}
 #detail .barcodebox svg{width:100%!important;height:auto!important;max-height:none!important;max-width:none!important;min-height:0!important;display:block!important;object-fit:contain!important}
 
 #cropDetectionStatus{min-height:2.8em;color:#cfe4ff;font-size:.92rem}
+
+.scan-review{background:#fff;color:#163354;border-radius:16px;padding:18px;margin:12px 0}.scan-review-number{font-size:clamp(1.3rem,5vw,2rem);font-weight:700;letter-spacing:.025em;overflow-wrap:anywhere;margin:12px 0}.scan-review p{color:#38516b}.scan-review .actions{display:flex;gap:10px;flex-wrap:wrap}.scan-review[hidden]{display:none!important}
