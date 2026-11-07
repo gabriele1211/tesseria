@@ -337,6 +337,7 @@ async function preparePhotoCrop(src){
  // L'immagine originale rimane sempre disponibile e visibile per intero.
  $('cropDetectionStatus').textContent='Foto intera caricata. Controlla che tutti i bordi siano visibili; puoi spostare e ingrandire con le dita.';
  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
+ try{await autoStraightenCard()}catch(err){$('cropDetectionStatus').textContent='Foto originale mantenuta: correzione automatica non disponibile.'}
 }
 let cropAutoApplied=false;
 async function autoStraightenCard(){
@@ -361,7 +362,7 @@ async function autoStraightenCard(){
  $('cropDetectionStatus').textContent='Tessera raddrizzata. Verifica che tutti i bordi siano presenti; se non va bene premi Reimposta inquadratura.';
  renderCrop();
 }
-$('cropAuto').onclick=async()=>{try{await autoStraightenCard()}catch(e){$('cropDetectionStatus').textContent='Raddrizzamento non riuscito: foto originale conservata.'}};
+
 let pendingPhoto=null,cropImage=null;
 const cropState={zoom:1,rotation:0,x:0,y:0};
 const cropPointers=new Map();let gesture=null;
