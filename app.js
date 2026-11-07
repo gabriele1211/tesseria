@@ -136,9 +136,52 @@ async function capturePhoto(){
  }finally{photoCaptureBusy=false}
 }
 $('takePhoto').onclick=capturePhoto;
+function detectCardRect(img){
+ // Ritaglio prudente per tessere chiare su sfondo scuro; non altera il file originale.
+ const c=document.createElement('canvas');c.width=320;c.height=Math.max(1,Math.round(320*img.height/img.width));
+ const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,c.width,c.height);
+ const w=c.width,h=c.height,p=ctx.getImageData(0,0,w,h).data;
+ const lum=(x,y)=>{const i=(y*w+x)*4;return .299*p[i]+.587*p[i+1]+.114*p[i+2]};
+ const corners=[lum(3,3),lum(w-4,3),lum(3,h-4),lum(w-4,h-4)].sort((a,b)=>a-b);
+ const bg=(corners[1]+corners[2])/2,center=lum(w>>1,h>>1);
+ if(center-bg<55)return null;
+ const threshold=bg+(center-bg)*.52;
+ const rows=[.25,.4,.6,.75].map(f=>Math.round(h*f));
+ const cols=[.25,.4,.6,.75].map(f=>Math.round(w*f));
+ const bounds=[];
+ for(const y of rows){
+  let l=-1,r=-1;
+  for(let x=2;x<w/2;x++)if(lum(x,y)>threshold&&lum(x+1,y)>threshold){l=x;break}
+  for(let x=w-3;x>w/2;x--)if(lum(x,y)>threshold&&lum(x-1,y)>threshold){r=x;break}
+  if(l<0||r<0)return null;bounds.push([l,r]);
+ }
+ const vertical=[];
+ for(const x of cols){
+  let t=-1,b=-1;
+  for(let y=2;y<h/2;y++)if(lum(x,y)>threshold&&lum(x,y+1)>threshold){t=y;break}
+  for(let y=h-3;y>h/2;y--)if(lum(x,y)>threshold&&lum(x,y-1)>threshold){b=y;break}
+  if(t<0||b<0)return null;vertical.push([t,b]);
+ }
+ const avg=(arr,k)=>arr.reduce((a,v)=>a+v[k],0)/arr.length;
+ const left=avg(bounds,0),right=avg(bounds,1),top=avg(vertical,0),bottom=avg(vertical,1);
+ if(bounds.some(v=>Math.abs(v[0]-left)>10||Math.abs(v[1]-right)>10)||vertical.some(v=>Math.abs(v[0]-top)>10||Math.abs(v[1]-bottom)>10))return null;
+ const width=right-left,height=bottom-top;
+ if(width<w*.48||height<h*.45||width/height<1.3||width/height>2.3)return null;
+ const sx=img.width/w,sy=img.height/h;
+ return {x:Math.max(0,(left-2)*sx),y:Math.max(0,(top-2)*sy),width:Math.min(img.width,(width+4)*sx),height:Math.min(img.height,(height+4)*sy)};
+}
 async function preparePhotoCrop(src){
  pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
+ // Rileva una tessera chiara su uno sfondo più scuro, senza tagliare se incerta.
+ const rect=detectCardRect(cropImage);
+ if(rect){
+  const ratio=1.586,iw=cropImage.width,ih=cropImage.height;
+  const zoom=Math.min(iw/rect.width,ih/rect.height);
+  cropState.zoom=Math.max(1,Math.min(3.5,zoom));
+  cropState.x=(iw/2-(rect.x+rect.width/2))*cropState.zoom/iw;
+  cropState.y=(ih/2-(rect.y+rect.height/2))*cropState.zoom/ih;
+ }
  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
 }
 let pendingPhoto=null,cropImage=null;
