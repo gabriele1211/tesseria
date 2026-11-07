@@ -102,3 +102,6 @@ body.scanner-open{overflow:hidden}
 /* 1.2.5: messaggi fotocamera con altezza fissa per evitare salti del video */
 #photoCameraStatus{min-height:3.6em;max-height:3.6em;overflow:hidden;line-height:1.8;display:block}
 .name-last{margin-top:20px!important}.name-last .field-help{display:block;font-weight:400;margin-top:5px}
+
+/* v1.2.6: codice EAN con geometria intrinseca, senza stiramento */
+.barcodebox{overflow:hidden;padding:22px 12px 16px}.barcodebox svg{display:block;width:100%;height:auto;min-height:0;max-width:540px;margin:0 auto;aspect-ratio:auto}.barcodebox p[hidden]{display:none!important}
