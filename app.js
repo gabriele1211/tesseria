@@ -481,7 +481,7 @@ function brandSuggestion(data){
 async function recognizePhotoName(src){
  if(ocrBusy)return;
  const status=$('photoOcrStatus');ocrBusy=true;$('retryOcr').disabled=true;
- status.textContent='Lettura delle scritte in corso…';
+ status.textContent='Lettura del nome in corso…';
  try{
   if(!window.Tesseract){
    await new Promise((resolve,reject)=>{
@@ -510,8 +510,8 @@ async function recognizePhotoName(src){
   if(suggestion){
    if(!$('name').value.trim()||/^(?:[A-Za-z]\s+){2,}[A-Za-z]?$/i.test($('name').value.trim()))$('name').value=suggestion;
    status.textContent='Nome suggerito ('+source+'): '+suggestion+'. Verifica prima di salvare.';
-  }else status.textContent='Testo non riconosciuto con sufficiente affidabilità. Scrivi il nome manualmente.';
- }catch(err){status.textContent='OCR non disponibile: '+String(err?.message||err).slice(0,90)}
+  }else status.textContent='Nome non riconosciuto. Scrivilo manualmente nel campo qui sopra.';
+ }catch(err){status.textContent='Lettura automatica non disponibile. Scrivi il nome manualmente. ('+String(err?.message||err).slice(0,70)+')'}
  finally{ocrBusy=false;$('retryOcr').disabled=false}
 }
 
