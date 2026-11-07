@@ -480,8 +480,11 @@ function brandSuggestion(data){
 }
 async function recognizePhotoName(src){
  if(ocrBusy)return;
- const status=$('photoOcrStatus');ocrBusy=true;$('retryOcr').disabled=true;
- status.textContent='Lettura del nome in corso…';
+ const status=$('photoOcrStatus'),nameInput=$('name');ocrBusy=true;$('retryOcr').disabled=true;
+ const previousPlaceholder=nameInput.placeholder;
+ nameInput.placeholder='Nome in apprendimento… attendere…';
+ nameInput.readOnly=true;
+ status.textContent='Nome in apprendimento… attendere il riconoscimento prima di scrivere.';
  try{
   if(!window.Tesseract){
    await new Promise((resolve,reject)=>{
@@ -512,7 +515,7 @@ async function recognizePhotoName(src){
    status.textContent='Nome suggerito ('+source+'): '+suggestion+'. Verifica prima di salvare.';
   }else status.textContent='Nome non riconosciuto. Scrivilo manualmente nel campo qui sopra.';
  }catch(err){status.textContent='Lettura automatica non disponibile. Scrivi il nome manualmente. ('+String(err?.message||err).slice(0,70)+')'}
- finally{ocrBusy=false;$('retryOcr').disabled=false}
+ finally{ocrBusy=false;$('retryOcr').disabled=false;nameInput.readOnly=false;nameInput.placeholder=previousPlaceholder}
 }
 
 $('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(originalPhotoForOcr||photoDraft);else toast('Prima scatta una fotografia')};
