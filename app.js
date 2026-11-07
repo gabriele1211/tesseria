@@ -4,7 +4,7 @@ let cards=[],current=null,editId=null,stream=null,scanning=false,photoDraft=null
 function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',3500)}
 function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'[]');cards=Array.isArray(v)?v:[]}catch{cards=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}catch{toast('Impossibile salvare: memoria del browser non disponibile');return false}}
-function show(id){$('add').hidden=id!=='home';stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
+function show(id){if(id!=='detail'&&$('barcodeFullscreen')&&!$('barcodeFullscreen').hidden)closeBarcodeFullscreen();$('add').hidden=id!=='home';stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
 const defaultReorderText='Tieni premuta una tessera, trascinala su un’altra e rilascia quando diventa verde.';
 let reorderStatusTimer=null;
 function reorderNotice(message,reset=false){const el=$('reorderStatus');if(!el)return;clearTimeout(reorderStatusTimer);el.textContent=message;if(reset)reorderStatusTimer=setTimeout(()=>{el.textContent=defaultReorderText},2600)}
