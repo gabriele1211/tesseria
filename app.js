@@ -331,19 +331,29 @@ function enhanceOcrImage(src){
  });
 }
 function selectMerchantName(data){
- const raw=String(data?.text||'');
  const clean=s=>String(s||'').replace(/[^\p{L}\p{N} &'’.-]/gu,' ').replace(/\s+/g,' ').trim();
+ const raw=String(data?.text||'');
  const lines=raw.split(/\r?\n/).map(clean).filter(Boolean);
- const valid=lines.filter(s=>{
-  const words=s.match(/\p{L}{3,}/gu)||[];
-  return words.length>=1 && words.join('').length>=5 && !/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(s);
- });
- if(!valid.length)return '';
- const ranked=valid.map((s,i)=>({s,score:(s.match(/\p{L}{3,}/gu)||[]).length*8+Math.min(s.length,35)-i*2})).sort((a,b)=>b.score-a.score);
- const selected=ranked[0].s,at=lines.indexOf(selected);
- const next=lines[at+1];
- const result=next && next.length>=5 && next.length<35 && /\p{L}{3,}/u.test(next) && !/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(next)?selected+' '+next:selected;
- return result.slice(0,80);
+ const words=s=>s.match(/\p{L}{3,}/gu)||[];
+ const scoreLine=s=>{
+  const w=words(s),letters=(s.match(/\p{L}/gu)||[]).length;
+  if(!w.length||letters<5||s.length>55)return -1;
+  if(/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(s))return -1;
+  const isolated=(s.match(/(?:^|\s)\p{L}{1,2}(?=\s|$)/gu)||[]).length;
+  const badCase=(s.match(/\b(?:\p{Lu}\p{Ll}{0,2}){3,}\b/gu)||[]).length;
+  const irregular=isolated*12+badCase*12;
+  return w.length*9+Math.min(letters,24)-irregular;
+ };
+ const candidates=lines.map((s,i)=>({s,score:scoreLine(s)-i*0.5})).filter(x=>x.score>=18).sort((a,b)=>b.score-a.score);
+ if(!candidates.length)return '';
+ const best=candidates[0];
+ // Tesseract confidence alone is not sufficient for decorative logos.
+ const conf=Number(data?.confidence);
+ if(Number.isFinite(conf)&&conf<48)return '';
+ const tokens=best.s.split(/\s+/);
+ if(tokens.length>=5 && tokens.filter(t=>t.length<=3).length>=2)return '';
+ if(tokens.length>=4 && tokens.filter(t=>/^[A-Z][a-z]{0,2}$/.test(t)).length>=2)return '';
+ return best.s.slice(0,80);
 }
 async function recognizePhotoName(src){
  if(ocrBusy)return;
@@ -360,6 +370,11 @@ async function recognizePhotoName(src){
   }
   const original=await window.Tesseract.recognize(src,'ita+eng',{});
   let suggestion=selectMerchantName(original.data);
+  if(!suggestion){
+   const enhanced=await enhanceOcrImage(src);
+   const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
+   suggestion=selectMerchantName(second.data);
+  }
   if(!suggestion){
    const enhanced=await enhanceOcrImage(src);
    const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
