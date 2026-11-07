@@ -126,6 +126,12 @@ function drawBarcode(fmt,raw){
  }
 }
 
+function closeBarcodeFullscreen(){const overlay=$('barcodeFullscreen');if(overlay.hidden)return;overlay.hidden=true;document.body.classList.remove('barcode-fullscreen-open');$('barcodeTapTarget').focus({preventScroll:true})}
+function openBarcodeFullscreen(){const source=$('barcode');if(!source.querySelector('rect'))return;const overlay=$('barcodeFullscreen'),slot=$('barcodeFullscreenImage');slot.replaceChildren(source.cloneNode(true));const number=$('detailNumber');$('barcodeFullscreenNumber').textContent=number.hidden?'':number.textContent;overlay.hidden=false;document.body.classList.add('barcode-fullscreen-open');overlay.focus({preventScroll:true})}
+$('barcodeTapTarget').addEventListener('click',openBarcodeFullscreen);
+$('barcodeTapTarget').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openBarcodeFullscreen()}});
+$('barcodeFullscreen').addEventListener('click',closeBarcodeFullscreen);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeBarcodeFullscreen()});
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('cardActions').open=false;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));
 let photoCameraStream=null,photoMonitor=null,photoCaptureBusy=false,photoStable=0,photoLastFrame=null;
