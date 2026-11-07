@@ -1,5 +1,5 @@
-/* Tesseria 1.2.19: navigazione network-first, risorse statiche cache-first per offline. */
-const CACHE='tesseria-v1.2.19';
+/* Tesseria 1.2.20: navigazione network-first, risorse statiche cache-first per offline. */
+const CACHE='tesseria-v1.2.20';
 const ASSETS=['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./version.js','./photos.js','./icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png','./icons/apple-touch-icon.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('tesseria-')&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
