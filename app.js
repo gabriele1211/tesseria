@@ -482,7 +482,7 @@ function brandSuggestion(data){
 function brandFromOcrFragments(data){
  const raw=normalizeBrandText(data?.text);
  // Il marchio puo essere separato in parole o righe diverse dall'OCR.
- if(/\\bbric[o0]\\b/.test(raw)&&/\\b(?:io|i0|lo)\\b/.test(raw))return 'Brico io';
+ if(/\bbric[o0]\b/.test(raw)&&/\b(?:io|i0|lo)\b/.test(raw))return 'Brico io';
  return brandSuggestion(data);
 }
 function prepareLogoOcr(src){
@@ -501,8 +501,7 @@ function prepareLogoOcr(src){
     // Scritte chiare su fondo grigio + lettere rosse: nero su bianco.
     const isWhiteText=r>155&&g>155&&b>150&&Math.max(r,g,b)-Math.min(r,g,b)<65;
     const isRedText=r>95&&r>g*1.45&&r>b*1.3;
-    const darkBackground=r<140&&g<140&&b<140;
-    const ink=(isWhiteText||isRedText)&&!darkBackground;
+    const ink=isWhiteText||isRedText;
     p[i]=p[i+1]=p[i+2]=ink?0:255;
    }
    ctx.putImageData(frame,0,0);resolve(canvas.toDataURL('image/png'));
