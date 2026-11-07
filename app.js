@@ -485,6 +485,25 @@ function brandFromOcrFragments(data){
  if(/\bbric[o0]\b/.test(raw)&&/\b(?:io|i0|lo)\b/.test(raw))return 'Brico io';
  return brandSuggestion(data);
 }
+function bricoVisualCandidate(src,ocrTexts){
+ // Riconoscimento prudente: indizi OCR del marchio + profilo colori e geometria.
+ const words=normalizeBrandText(ocrTexts.join(' '));
+ if(!/(?:bric|br1c|br co|rico|brico|brlco)/.test(words))return Promise.resolve('');
+ return new Promise(resolve=>{
+  const im=new Image();im.onload=()=>{
+   const c=document.createElement('canvas');c.width=120;c.height=80;
+   const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(im,0,0,120,80);
+   const p=ctx.getImageData(0,0,120,80).data;let red=0,gray=0,white=0;
+   for(let y=12;y<61;y++)for(let x=12;x<108;x++){
+    const i=(y*120+x)*4,r=p[i],g=p[i+1],b=p[i+2];
+    if(r>105&&r>g*1.45&&r>b*1.35)red++;
+    if(Math.max(r,g,b)-Math.min(r,g,b)<28&&r>40&&r<160)gray++;
+    if(r>175&&g>175&&b>175)white++;
+   }
+   resolve(red>25&&gray>350&&white>300?'Brico io':'');
+  };im.onerror=()=>resolve('');im.src=src;
+ });
+}
 function prepareLogoOcr(src){
  return new Promise((resolve,reject)=>{
   const img=new Image();img.onload=()=>{
@@ -537,8 +556,8 @@ async function recognizePhotoName(src){
    else {
     const alt=await window.Tesseract.recognize(src,'eng',{tessedit_pageseg_mode:11});
     suggestion=brandFromOcrFragments(alt.data)||brandFromOcrFragments(original.data)||brandFromOcrFragments(second.data);
-    if(!suggestion){const logo=await prepareLogoOcr(src);const logoRead=await window.Tesseract.recognize(logo,'eng',{tessedit_pageseg_mode:6});suggestion=brandFromOcrFragments(logoRead.data);}
-    suggestion=suggestion||await commercialColorSuggestion(src,[original.data?.text,second.data?.text,alt.data?.text])||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
+    let logoRead=null;if(!suggestion){const logo=await prepareLogoOcr(src);logoRead=await window.Tesseract.recognize(logo,'eng',{tessedit_pageseg_mode:6});suggestion=brandFromOcrFragments(logoRead.data);}
+    suggestion=suggestion||await bricoVisualCandidate(src,[original.data?.text,second.data?.text,alt.data?.text,logoRead?.data?.text])||await commercialColorSuggestion(src,[original.data?.text,second.data?.text,alt.data?.text])||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
     if(suggestion==='Famila Club'||brandSuggestion(alt.data))source='marchio riconosciuto';
    }
   }
