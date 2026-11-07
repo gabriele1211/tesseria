@@ -132,3 +132,13 @@ body.scanner-open{overflow:hidden}
 .wallet-info small{font-size:clamp(12px,3vw,15px);overflow-wrap:anywhere}
 .wallet-card .chevron{font-size:25px;flex:none}
 @media(max-width:370px){.card.wallet-card{gap:9px;padding:9px}.wallet-visual{flex-basis:35%}}
+
+/* Inserimento guidato 1-2-3 */
+.entry-step{display:flex;align-items:center;gap:14px;margin:28px 0 12px;padding:15px 14px;border-radius:15px;background:#1d3959;border:1px solid #547aa0;color:#f5f9ff}
+.entry-step .step-number{display:grid;place-items:center;flex:0 0 43px;height:43px;border-radius:13px;background:#2670bb;color:white;font-weight:800;font-size:23px}
+.entry-step strong{display:block;font-size:17px;line-height:1.3}
+.entry-step span:not(.step-number){display:block;font-size:13px;color:#d5e3f1;line-height:1.45;margin-top:3px}
+.step-field-label{margin-top:10px!important}
+.entry-save{justify-content:flex-end;gap:10px;margin-top:27px}
+.entry-save button[type=submit]{font-weight:750}
+@media(max-width:380px){.entry-step{gap:10px;padding:12px}.entry-step strong{font-size:15px}}
