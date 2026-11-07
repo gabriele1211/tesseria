@@ -15,7 +15,32 @@ const c39={0:'101001101101',1:'110100101011',2:'101100101011',3:'110110010101',4
 const itfA=['00110','10001','01001','11000','00101','10100','01100','00011','10010','01010'];
 function checkEAN(v){let s=0;for(let i=v.length-2,k=0;i>=0;i--,k++)s+=Number(v[i])*(k%2===0?3:1);return (10-s%10)%10===Number(v.at(-1))}
 function encode(fmt,raw){const v=raw.trim().toUpperCase();if(fmt==='EAN13'){if(!/^\d{13}$/.test(v)||!checkEAN(v))throw Error('EAN-13: servono 13 cifre con cifra di controllo valida');let bits='101';for(let i=1;i<7;i++)bits+=(parity[Number(v[0])][i-1]==='L'?eanL:eanG)[Number(v[i])];bits+='01010';for(let i=7;i<13;i++)bits+=eanR[Number(v[i])];return bits+'101'}if(fmt==='EAN8'){if(!/^\d{8}$/.test(v)||!checkEAN(v))throw Error('EAN-8: servono 8 cifre con cifra di controllo valida');return '101'+[...v.slice(0,4)].map(n=>eanL[+n]).join('')+'01010'+[...v.slice(4)].map(n=>eanR[+n]).join('')+'101'}if(fmt==='CODE39'){if(!v||[...v].some(ch=>!c39[ch]||ch==='*'))throw Error('Code 39: caratteri non supportati');return '*'+v+'*'}if(fmt==='ITF'){if(!/^\d+$/.test(v)||v.length%2)throw Error('ITF: è richiesto un numero pari di cifre');let bits='1010';for(let i=0;i<v.length;i+=2){let a=itfA[+v[i]],b=itfA[+v[i+1]];for(let j=0;j<5;j++)bits+=(a[j]==='1'?'111':'1')+(b[j]==='1'?'000':'0')}return bits+'11101'}throw Error('Formato non supportato')}
-function drawBarcode(fmt,raw){const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();let bars=[];if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 62`)}else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 62`)}const rect=document.createElementNS(ns,'rect');rect.setAttribute('width','100%');rect.setAttribute('height','100%');rect.setAttribute('fill','#fff');svg.append(rect);for(const [x,w] of bars){const r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y','5');r.setAttribute('width',w);r.setAttribute('height','52');r.setAttribute('fill','#000');svg.append(r)}}
+function drawBarcode(fmt,raw){
+ const v=encode(fmt,raw),svg=$('barcode'),ns='http://www.w3.org/2000/svg';
+ svg.replaceChildren();svg.setAttribute('preserveAspectRatio','xMidYMid meet');
+ const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);for(const [k,val] of Object.entries(attrs))e.setAttribute(k,String(val));if(text!==undefined)e.textContent=text;svg.append(e);return e};
+ if(fmt==='EAN13'||fmt==='EAN8'){
+  const is13=fmt==='EAN13',quiet=14,total=v.length+quiet*2;
+  svg.setAttribute('viewBox',`0 0 ${total} 92`);
+  add('rect',{width:total,height:92,fill:'#fff'});
+  for(let i=0;i<v.length;i++)if(v[i]==='1'){
+   const guard=is13?(i<3||(i>=45&&i<50)||i>=92):(i<3||(i>=31&&i<36)||i>=64);
+   add('rect',{x:i+quiet,y:5,width:1,height:guard?68:61,fill:'#000'});
+  }
+  const label=(x,text,size=9)=>add('text',{x,y:84,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':size,fill:'#111'},text);
+  if(is13){label(6,raw[0],10);label(quiet+24,raw.slice(1,7),9);label(quiet+71,raw.slice(7),9)}
+  else{label(quiet+17,raw.slice(0,4),9);label(quiet+50,raw.slice(4),9)}
+  $('detailNumber').hidden=true;
+ }else{
+  let bars=[];
+  if(fmt==='CODE39'){let x=12;for(const ch of v){const pat=c39[ch];for(let i=0;i<12;i++){const w=pat[i]==='1'?3:1;if(i%2===0)bars.push([x,w]);x+=w}x+=2}svg.setAttribute('viewBox',`0 0 ${x+12} 70`)}
+  else{for(let i=0;i<v.length;i++)if(v[i]==='1')bars.push([i+12,1]);svg.setAttribute('viewBox',`0 0 ${v.length+24} 70`)}
+  add('rect',{width:'100%',height:'100%',fill:'#fff'});
+  for(const [x,w] of bars)add('rect',{x,y:5,width:w,height:60,fill:'#000'});
+  $('detailNumber').hidden=false;
+ }
+}
+
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('cardActions').open=false;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
 $('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
 let photoCameraStream=null,photoMonitor=null,photoCaptureBusy=false,photoStable=0,photoLastFrame=null;
@@ -71,11 +96,11 @@ function monitorPhoto(){
   const v=$('photoCameraVideo');if(!v.videoWidth||photoCaptureBusy||$('photoCameraModal').hidden)return;
   try{
    const q=photoFrameQuality(v);
-   const ready=q.motion<16&&Math.abs(q.contrast)>12;
+   const ready=Math.abs(q.contrast)>8&&q.motion<28;
    photoStable=ready?photoStable+1:0;
    $('photoCameraFrame').classList.toggle('photo-ready',photoStable>=3);
    $('photoCameraStatus').textContent=photoStable>=2?'Immagine stabile · acquisizione automatica…':'Centra la tessera nella cornice e tieni fermo il telefono.';
-   if(photoStable>=7)capturePhoto();
+   if(photoStable>=5)capturePhoto();
   }catch(err){stopPhotoMonitor();$('photoCameraStatus').textContent='Rilevamento automatico non disponibile: usa Scatta foto.'}
  },300);
 }
