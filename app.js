@@ -5,6 +5,40 @@ function toast(t){$('toast').textContent=t;$('toast').style.display='block';setT
 function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'[]');cards=Array.isArray(v)?v:[]}catch{cards=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}catch{toast('Impossibile salvare: memoria del browser non disponibile');return false}}
 function show(id){stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
+let reorderSuppressUntil=0;
+function installCardReorder(node,id){
+ let timer=null,active=false,startX=0,startY=0,lastTarget=null;
+ const clearTarget=()=>{if(lastTarget){lastTarget.classList.remove('drop-target');lastTarget=null}};
+ const finish=(commit)=>{
+  if(timer!==null){clearTimeout(timer);timer=null}
+  if(active){reorderSuppressUntil=Date.now()+650;node.classList.remove('is-reordering');if(commit&&lastTarget&&lastTarget!==node){
+    const source=cards.findIndex(c=>String(c.id)===String(id)),destination=cards.findIndex(c=>String(c.id)===lastTarget.dataset.cardId);
+    if(source>=0&&destination>=0&&source!==destination){const old=cards.slice();const [item]=cards.splice(source,1);cards.splice(destination,0,item);if(!save())cards=old;render();toast('Ordine tessere aggiornato')}
+   }}
+  clearTarget();active=false;
+ };
+ node.addEventListener('touchstart',e=>{
+  if($('search').value.trim()||e.touches.length!==1)return;
+  const t=e.touches[0];startX=t.clientX;startY=t.clientY;
+  timer=setTimeout(()=>{timer=null;active=true;node.classList.add('is-reordering');if(navigator.vibrate)navigator.vibrate(25)},450);
+ },{passive:true});
+ node.addEventListener('touchmove',e=>{
+  if(e.touches.length!==1)return;
+  const t=e.touches[0];
+  if(!active){if(timer!==null&&Math.hypot(t.clientX-startX,t.clientY-startY)>11){clearTimeout(timer);timer=null}return}
+  e.preventDefault();clearTarget();
+  const target=document.elementFromPoint(t.clientX,t.clientY)?.closest('.wallet-card');
+  if(target&&target!==node){lastTarget=target;target.classList.add('drop-target')}
+ },{passive:false});
+ node.addEventListener('touchend',()=>finish(true));
+ node.addEventListener('touchcancel',()=>finish(false));
+ node.addEventListener('contextmenu',e=>{if(active||timer!==null)e.preventDefault()});
+ node.draggable=true;
+ node.addEventListener('dragstart',e=>{if($('search').value.trim()){e.preventDefault();return}active=true;node.classList.add('is-reordering');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id))});
+ node.addEventListener('dragover',e=>{if(!active&& !document.querySelector('.is-reordering'))return;e.preventDefault();clearTarget();lastTarget=node;node.classList.add('drop-target')});
+ node.addEventListener('drop',e=>{e.preventDefault();const sourceId=e.dataTransfer.getData('text/plain');const from=cards.findIndex(c=>String(c.id)===sourceId),to=cards.findIndex(c=>String(c.id)===String(id));if(from>=0&&to>=0&&from!==to){const old=cards.slice();const [item]=cards.splice(from,1);cards.splice(to,0,item);if(!save())cards=old;render();toast('Ordine tessere aggiornato')}});
+ node.addEventListener('dragend',()=>finish(false));
+}
 let homeRenderId=0;
 function render(){
  const root=$('cards');root.replaceChildren();
@@ -24,7 +58,7 @@ function render(){
   const name=document.createElement('strong');name.textContent=c.name.startsWith('Tessera '+c.number)?'Tessera fotografata':c.name;
   const number=document.createElement('small');number.textContent=c.number;
   const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';
-  info.append(name,number);b.append(visual,info,arrow);b.onclick=()=>detail(c.id);root.append(b);
+  info.append(name,number);b.append(visual,info,arrow);b.onclick=()=>{if(Date.now()<reorderSuppressUntil)return;detail(c.id)};b.dataset.cardId=String(c.id);installCardReorder(b,c.id);root.append(b);
   // Foto già salvate in IndexedDB: non duplicarle in localStorage.
   Promise.resolve().then(()=>TesseriaPhotos.get(c.id)).then(photo=>{
    if(renderId!==homeRenderId||!b.isConnected||!photo)return;
