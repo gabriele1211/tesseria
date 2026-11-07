@@ -28,8 +28,10 @@ function render(){
   // Foto già salvate in IndexedDB: non duplicarle in localStorage.
   Promise.resolve().then(()=>TesseriaPhotos.get(c.id)).then(photo=>{
    if(renderId!==homeRenderId||!b.isConnected||!photo)return;
-   const img=document.createElement('img');img.className='wallet-image';img.alt='Fronte della tessera '+c.name;img.loading='lazy';img.src=photo;
+   const img=document.createElement('img');img.className='wallet-image';img.alt='Fronte della tessera '+c.name;img.loading='eager';
    img.onload=()=>{if(renderId===homeRenderId&&b.isConnected){visual.replaceChildren(img);visual.classList.add('has-photo')}};
+   img.src=photo;
+   if(img.complete&&img.naturalWidth>0)img.onload();
   }).catch(()=>{});
  }
 }
