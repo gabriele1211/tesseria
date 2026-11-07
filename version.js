@@ -1,4 +1,4 @@
 /* Unica sorgente della versione visualizzata. Aggiornare con ogni release. */
-window.TESSERIA_VERSION='1.2.6';
+window.TESSERIA_VERSION='1.2.7';
 document.getElementById('appVersion').textContent='v'+window.TESSERIA_VERSION;
 document.getElementById('copyrightYear').textContent=new Date().getFullYear();
