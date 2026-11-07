@@ -7,43 +7,53 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}
 function show(id){stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
 let reorderSuppressUntil=0;
 function installCardReorder(node,id){
- let timer=null,active=false,startX=0,startY=0,lastTarget=null;
- const clearTarget=()=>{if(lastTarget){lastTarget.classList.remove('drop-target');lastTarget=null}};
- const finish=(commit)=>{
+ let timer=null,active=false,target=null,startX=0,startY=0,dragY=0;
+ const clear=()=>{if(target){target.classList.remove('drop-target');target=null}};
+ const stop=(commit)=>{
   if(timer!==null){clearTimeout(timer);timer=null}
-  if(active){reorderSuppressUntil=Date.now()+650;node.classList.remove('is-reordering');if(commit&&lastTarget&&lastTarget!==node){
-    const source=cards.findIndex(c=>String(c.id)===String(id)),destination=cards.findIndex(c=>String(c.id)===lastTarget.dataset.cardId);
-    if(source>=0&&destination>=0&&source!==destination){const old=cards.slice();const [item]=cards.splice(source,1);cards.splice(destination,0,item);if(!save())cards=old;render();toast('Ordine tessere aggiornato')}
-   }}
-  clearTarget();active=false;
+  if(!active){clear();return}
+  reorderSuppressUntil=Date.now()+900;
+  node.classList.remove('is-reordering');
+  const destination=target?.dataset.cardId;
+  clear();active=false;
+  document.body.classList.remove('reorder-active');
+  const status=$('reorderStatus');
+  if(commit&&destination&&String(destination)!==String(id)){
+   const from=cards.findIndex(c=>String(c.id)===String(id));
+   const to=cards.findIndex(c=>String(c.id)===String(destination));
+   if(from>=0&&to>=0){const old=cards.slice();const [item]=cards.splice(from,1);cards.splice(to,0,item);if(save()){render();status.textContent='✓ Tessera spostata alla posizione '+(to+1);toast('Tessera spostata alla posizione '+(to+1))}else cards=old}
+  }else status.textContent='Tieni premuta una tessera, trascinala su un’altra e rilascia.';
  };
+ node.draggable=false;
  node.addEventListener('touchstart',e=>{
-  if($('search').value.trim()||e.touches.length!==1)return;
-  const t=e.touches[0];startX=t.clientX;startY=t.clientY;
-  timer=setTimeout(()=>{timer=null;active=true;node.classList.add('is-reordering');if(navigator.vibrate)navigator.vibrate(25)},450);
+  if(e.touches.length!==1)return;
+  const t=e.touches[0];startX=t.clientX;startY=t.clientY;dragY=startY;
+  timer=setTimeout(()=>{timer=null;active=true;node.classList.add('is-reordering');document.body.classList.add('reorder-active');reorderSuppressUntil=Date.now()+900;$('reorderStatus').textContent='Sposta la tessera sopra un’altra: la destinazione diventa verde. Poi rilascia.';if(navigator.vibrate)navigator.vibrate(30)},420);
  },{passive:true});
  node.addEventListener('touchmove',e=>{
   if(e.touches.length!==1)return;
-  const t=e.touches[0];
-  if(!active){if(timer!==null&&Math.hypot(t.clientX-startX,t.clientY-startY)>11){clearTimeout(timer);timer=null}return}
-  e.preventDefault();clearTarget();
-  const target=document.elementFromPoint(t.clientX,t.clientY)?.closest('.wallet-card');
-  if(target&&target!==node){lastTarget=target;target.classList.add('drop-target')}
+  const t=e.touches[0];dragY=t.clientY;
+  if(!active){if(timer!==null&&Math.hypot(t.clientX-startX,t.clientY-startY)>10){clearTimeout(timer);timer=null}return}
+  e.preventDefault();clear();
+  const candidates=[...document.querySelectorAll('#cards .wallet-card')].filter(el=>el!==node);
+  const hovered=candidates.find(el=>{const r=el.getBoundingClientRect();return dragY>=r.top&&dragY<=r.bottom});
+  if(hovered){target=hovered;target.classList.add('drop-target');$('reorderStatus').textContent='Rilascia per spostare alla posizione '+(candidates.indexOf(hovered)+1)}
+  const edge=65;if(t.clientY>innerHeight-edge)window.scrollBy(0,12);else if(t.clientY<150)window.scrollBy(0,-12);
  },{passive:false});
- node.addEventListener('touchend',()=>finish(true));
- node.addEventListener('touchcancel',()=>finish(false));
+ node.addEventListener('touchend',()=>stop(true));
+ node.addEventListener('touchcancel',()=>stop(false));
  node.addEventListener('contextmenu',e=>{if(active||timer!==null)e.preventDefault()});
- node.draggable=true;
- node.addEventListener('dragstart',e=>{if($('search').value.trim()){e.preventDefault();return}active=true;node.classList.add('is-reordering');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id))});
- node.addEventListener('dragover',e=>{if(!active&& !document.querySelector('.is-reordering'))return;e.preventDefault();clearTarget();lastTarget=node;node.classList.add('drop-target')});
- node.addEventListener('drop',e=>{e.preventDefault();const sourceId=e.dataTransfer.getData('text/plain');const from=cards.findIndex(c=>String(c.id)===sourceId),to=cards.findIndex(c=>String(c.id)===String(id));if(from>=0&&to>=0&&from!==to){const old=cards.slice();const [item]=cards.splice(from,1);cards.splice(to,0,item);if(!save())cards=old;render();toast('Ordine tessere aggiornato')}});
- node.addEventListener('dragend',()=>finish(false));
+ // Desktop: trascinamento HTML5 con bersaglio evidenziato.
+ node.draggable=!('ontouchstart' in window);
+ node.addEventListener('dragstart',e=>{active=true;node.classList.add('is-reordering');e.dataTransfer.setData('text/plain',String(id));e.dataTransfer.effectAllowed='move'});
+ node.addEventListener('dragend',()=>stop(false));
+ node.addEventListener('dragover',e=>{e.preventDefault();clear();target=node;node.classList.add('drop-target')});
+ node.addEventListener('drop',e=>{e.preventDefault();const sourceId=e.dataTransfer.getData('text/plain');const source=cards.findIndex(c=>String(c.id)===sourceId),destination=cards.findIndex(c=>String(c.id)===String(id));if(source>=0&&destination>=0&&source!==destination){const old=cards.slice();const [item]=cards.splice(source,1);cards.splice(destination,0,item);if(save()){render();$('reorderStatus').textContent='✓ Tessera spostata alla posizione '+(destination+1);toast('Ordine aggiornato')}else cards=old}});
 }
 let homeRenderId=0;
 function render(){
  const root=$('cards');root.replaceChildren();
- const q=$('search').value.trim().toLocaleLowerCase('it');
- const matches=cards.filter(c=>(c.name+' '+c.number).toLocaleLowerCase('it').includes(q));
+ const matches=cards;
  $('empty').hidden=matches.length>0;
  const renderId=++homeRenderId;
  for(const c of matches){
@@ -114,7 +124,7 @@ function drawBarcode(fmt,raw){
 }
 
 async function detail(id){const c=cards.find(x=>x.id===id);if(!c)return;$('detailPhoto').hidden=true;try{const p=await TesseriaPhotos.get(id);if(p){$('detailPhoto').src=p;$('detailPhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}current=id;$('cardActions').open=false;$('detailName').textContent=c.name;$('detailNumber').textContent=c.number;try{drawBarcode(c.format,c.number)}catch(e){toast(e.message);return}show('detail')}
-$('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));$('search').oninput=render;
+$('add').onclick=()=>openEditor();$('settings').onclick=()=>show('info');document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));
 let photoCameraStream=null,photoMonitor=null,photoCaptureBusy=false,photoStable=0,photoLastFrame=null;
 function stopPhotoMonitor(){if(photoMonitor){clearInterval(photoMonitor);photoMonitor=null}photoStable=0;photoLastFrame=null}
 function closePhotoCamera(){
