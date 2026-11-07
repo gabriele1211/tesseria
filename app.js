@@ -4,7 +4,10 @@ let cards=[],current=null,editId=null,stream=null,scanning=false,photoDraft=null
 function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',3500)}
 function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'[]');cards=Array.isArray(v)?v:[]}catch{cards=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}catch{toast('Impossibile salvare: memoria del browser non disponibile');return false}}
-function show(id){stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
+function show(id){$('add').hidden=id!=='home';stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
+const defaultReorderText='Tieni premuta una tessera, trascinala su un’altra e rilascia quando diventa verde.';
+let reorderStatusTimer=null;
+function reorderNotice(message,reset=false){const el=$('reorderStatus');if(!el)return;clearTimeout(reorderStatusTimer);el.textContent=message;if(reset)reorderStatusTimer=setTimeout(()=>{el.textContent=defaultReorderText},2600)}
 let reorderSuppressUntil=0;
 function installCardReorder(node,id){
  let timer=null,active=false,target=null,startX=0,startY=0,dragY=0;
@@ -21,14 +24,14 @@ function installCardReorder(node,id){
   if(commit&&destination&&String(destination)!==String(id)){
    const from=cards.findIndex(c=>String(c.id)===String(id));
    const to=cards.findIndex(c=>String(c.id)===String(destination));
-   if(from>=0&&to>=0){const old=cards.slice();const [item]=cards.splice(from,1);cards.splice(to,0,item);if(save()){render();status.textContent='✓ Tessera spostata alla posizione '+(to+1);toast('Tessera spostata alla posizione '+(to+1))}else cards=old}
-  }else status.textContent='Tieni premuta una tessera, trascinala su un’altra e rilascia.';
+   if(from>=0&&to>=0){const old=cards.slice();const [item]=cards.splice(from,1);cards.splice(to,0,item);if(save()){render();reorderNotice('✓ Tessera spostata alla posizione '+(to+1),true);toast('Tessera spostata alla posizione '+(to+1))}else cards=old}
+  }else reorderNotice(defaultReorderText);
  };
  node.draggable=false;
  node.addEventListener('touchstart',e=>{
   if(e.touches.length!==1)return;
   const t=e.touches[0];startX=t.clientX;startY=t.clientY;dragY=startY;
-  timer=setTimeout(()=>{timer=null;active=true;node.classList.add('is-reordering');document.body.classList.add('reorder-active');reorderSuppressUntil=Date.now()+900;$('reorderStatus').textContent='Sposta la tessera sopra un’altra: la destinazione diventa verde. Poi rilascia.';if(navigator.vibrate)navigator.vibrate(30)},420);
+  timer=setTimeout(()=>{timer=null;active=true;node.classList.add('is-reordering');document.body.classList.add('reorder-active');reorderSuppressUntil=Date.now()+900;reorderNotice('Sposta la tessera sopra un’altra: la destinazione diventa verde. Poi rilascia.');if(navigator.vibrate)navigator.vibrate(30)},420);
  },{passive:true});
  node.addEventListener('touchmove',e=>{
   if(e.touches.length!==1)return;
@@ -37,7 +40,7 @@ function installCardReorder(node,id){
   e.preventDefault();clear();
   const candidates=[...document.querySelectorAll('#cards .wallet-card')].filter(el=>el!==node);
   const hovered=candidates.find(el=>{const r=el.getBoundingClientRect();return dragY>=r.top&&dragY<=r.bottom});
-  if(hovered){target=hovered;target.classList.add('drop-target');$('reorderStatus').textContent='Rilascia per spostare alla posizione '+(candidates.indexOf(hovered)+1)}
+  if(hovered){target=hovered;target.classList.add('drop-target');reorderNotice('Rilascia per spostare alla posizione '+(candidates.indexOf(hovered)+1))}
   const edge=65;if(t.clientY>innerHeight-edge)window.scrollBy(0,12);else if(t.clientY<150)window.scrollBy(0,-12);
  },{passive:false});
  node.addEventListener('touchend',()=>stop(true));
@@ -48,7 +51,7 @@ function installCardReorder(node,id){
  node.addEventListener('dragstart',e=>{active=true;node.classList.add('is-reordering');e.dataTransfer.setData('text/plain',String(id));e.dataTransfer.effectAllowed='move'});
  node.addEventListener('dragend',()=>stop(false));
  node.addEventListener('dragover',e=>{e.preventDefault();clear();target=node;node.classList.add('drop-target')});
- node.addEventListener('drop',e=>{e.preventDefault();const sourceId=e.dataTransfer.getData('text/plain');const source=cards.findIndex(c=>String(c.id)===sourceId),destination=cards.findIndex(c=>String(c.id)===String(id));if(source>=0&&destination>=0&&source!==destination){const old=cards.slice();const [item]=cards.splice(source,1);cards.splice(destination,0,item);if(save()){render();$('reorderStatus').textContent='✓ Tessera spostata alla posizione '+(destination+1);toast('Ordine aggiornato')}else cards=old}});
+ node.addEventListener('drop',e=>{e.preventDefault();const sourceId=e.dataTransfer.getData('text/plain');const source=cards.findIndex(c=>String(c.id)===sourceId),destination=cards.findIndex(c=>String(c.id)===String(id));if(source>=0&&destination>=0&&source!==destination){const old=cards.slice();const [item]=cards.splice(source,1);cards.splice(destination,0,item);if(save()){render();reorderNotice('✓ Tessera spostata alla posizione '+(destination+1),true);toast('Ordine aggiornato')}else cards=old}});
 }
 let homeRenderId=0;
 function render(){
