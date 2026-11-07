@@ -157,7 +157,7 @@ async function capturePhoto(){
  photoCaptureBusy=true;
  try{
   const canvas=document.createElement('canvas'),ratio=1.586;
-  const w=video.videoWidth,h=video.videoHeight,sw=Math.min(w,h*ratio),sh=sw/ratio;
+  const w=video.videoWidth,h=video.videoHeight,sw=Math.min(w,h*ratio)*1.08,sh=Math.min(h,sw/ratio);
   canvas.width=1200;canvas.height=Math.round(1200/ratio);
   canvas.getContext('2d').drawImage(video,(w-sw)/2,(h-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
   const src=canvas.toDataURL('image/jpeg',.92);closePhotoCamera();
@@ -249,7 +249,9 @@ async function preparePhotoCrop(src){
  try{
   const corners=detectCardCorners(cropImage);
   if(corners){
-   const corrected=rectifyCard(cropImage,corners);
+   const cx=corners.reduce((v,p)=>v+p.x,0)/4,cy=corners.reduce((v,p)=>v+p.y,0)/4;
+   const safeCorners=corners.map(p=>({x:Math.max(0,Math.min(cropImage.width-1,cx+(p.x-cx)*1.055)),y:Math.max(0,Math.min(cropImage.height-1,cy+(p.y-cy)*1.055))}));
+   const corrected=rectifyCard(cropImage,safeCorners);
    pendingPhoto=corrected;cropImage=new Image();cropImage.src=corrected;await cropImage.decode();
    $('cropDetectionStatus').textContent='Quattro angoli individuati: prospettiva corretta automaticamente. Controlla il risultato.';
   }else $('cropDetectionStatus').textContent='Bordi non riconosciuti con sicurezza: regola la foto con le dita.';
@@ -263,9 +265,9 @@ function renderCrop(){
  const canvas=$('cropCanvas'),rect=canvas.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
  const width=Math.max(1,Math.round(rect.width*dpr)),height=Math.max(1,Math.round(rect.height*dpr));
  if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height}
- const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);ctx.fillStyle='#101820';ctx.fillRect(0,0,width,height);
+ const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);ctx.fillStyle='#ffffff';ctx.fillRect(0,0,width,height);
  if(!cropImage)return;
- const base=Math.max(width/cropImage.width,height/cropImage.height);
+ const base=Math.min(width/cropImage.width,height/cropImage.height);
  ctx.save();ctx.translate(width/2+cropState.x*width,height/2+cropState.y*height);ctx.rotate(cropState.rotation);
  ctx.scale(base*cropState.zoom,base*cropState.zoom);
  ctx.drawImage(cropImage,-cropImage.width/2,-cropImage.height/2);ctx.restore();
@@ -404,6 +406,8 @@ async function recognizePhotoName(src){
    });
   }
   const original=await window.Tesseract.recognize(src,'ita+eng',{});
+  // I loghi commerciali richiedono anche una lettura a segmentazione libera.
+  // Le proposte sono sempre da verificare prima del salvataggio.
   let suggestion=brandSuggestion(original.data);
   let source=suggestion?'marchio riconosciuto':'testo OCR';
   if(!suggestion){
@@ -411,7 +415,11 @@ async function recognizePhotoName(src){
    const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
    suggestion=brandSuggestion(second.data);
    if(suggestion)source='marchio riconosciuto';
-   else suggestion=selectMerchantName(original.data)||selectMerchantName(second.data);
+   else {
+    const alt=await window.Tesseract.recognize(src,'eng',{tessedit_pageseg_mode:11});
+    suggestion=brandSuggestion(alt.data)||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
+    if(brandSuggestion(alt.data))source='marchio riconosciuto';
+   }
   }
   if(suggestion){
    if(!$('name').value.trim()||/^(?:[A-Za-z]\s+){2,}[A-Za-z]?$/i.test($('name').value.trim()))$('name').value=suggestion;
