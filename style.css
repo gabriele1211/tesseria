@@ -142,3 +142,9 @@ body.scanner-open{overflow:hidden}
 .entry-save{justify-content:flex-end;gap:10px;margin-top:27px}
 .entry-save button[type=submit]{font-weight:750}
 @media(max-width:380px){.entry-step{gap:10px;padding:12px}.entry-step strong{font-size:15px}}
+
+/* v1.2.16: azioni allineate e proporzionate anche su iPhone piccoli */
+.entry-save{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:stretch}
+.entry-save button{min-width:0;padding:12px 7px;text-align:center;font-size:clamp(12px,3.4vw,16px);line-height:1.2;white-space:normal}
+.entry-save button[hidden]{display:none!important}
+.entry-save:not(:has(.retry-inline:not([hidden]))){grid-template-columns:1fr 1fr}
