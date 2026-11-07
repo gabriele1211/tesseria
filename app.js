@@ -332,12 +332,36 @@ async function preparePhotoCrop(src){
  originalPhotoForOcr=src;
  pendingPhoto=src;
  cropImage=new Image();cropImage.src=src;await cropImage.decode();
- Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
+ Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});cropAutoApplied=false;
  // Non applicare automaticamente ritagli incerti: rischiano di tagliare il logo.
  // L'immagine originale rimane sempre disponibile e visibile per intero.
  $('cropDetectionStatus').textContent='Foto intera caricata. Controlla che tutti i bordi siano visibili; puoi spostare e ingrandire con le dita.';
  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
 }
+let cropAutoApplied=false;
+async function autoStraightenCard(){
+ if(!originalPhotoForOcr)return;
+ const original=new Image();original.src=originalPhotoForOcr;await original.decode();
+ const corners=detectBrightCardBounds(original)||detectCardCorners(original);
+ if(!corners){$('cropDetectionStatus').textContent='Non riesco a individuare con sicurezza tutti e quattro i bordi. Mantengo la fotografia originale.';return}
+ const d=(p,q)=>Math.hypot(p.x-q.x,p.y-q.y);
+ const cw=(d(corners[0],corners[1])+d(corners[2],corners[3]))/2;
+ const ch=(d(corners[0],corners[3])+d(corners[1],corners[2]))/2;
+ const ratio=cw/ch;
+ const area=Math.abs(corners.reduce((sum,p,i)=>sum+p.x*corners[(i+1)%4].y-corners[(i+1)%4].x*p.y,0)/2);
+ const margin=Math.min(original.width,original.height)*.012;
+ if(ratio<1.35||ratio>1.95||area<original.width*original.height*.22||
+ corners.some(p=>p.x<margin||p.y<margin||p.x>original.width-margin||p.y>original.height-margin)){
+  $('cropDetectionStatus').textContent='Bordi non sufficientemente affidabili: foto originale conservata.';return;
+ }
+ const corrected=rectifyCard(original,corners);
+ const image=new Image();image.src=corrected;await image.decode();
+ cropImage=image;pendingPhoto=corrected;cropAutoApplied=true;
+ Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
+ $('cropDetectionStatus').textContent='Tessera raddrizzata. Verifica che tutti i bordi siano presenti; se non va bene premi Reimposta inquadratura.';
+ renderCrop();
+}
+$('cropAuto').onclick=async()=>{try{await autoStraightenCard()}catch(e){$('cropDetectionStatus').textContent='Raddrizzamento non riuscito: foto originale conservata.'}};
 let pendingPhoto=null,cropImage=null;
 const cropState={zoom:1,rotation:0,x:0,y:0};
 const cropPointers=new Map();let gesture=null;
@@ -376,7 +400,7 @@ cropCanvas.addEventListener('pointermove',e=>{
 function releaseCropPointer(e){cropPointers.delete(e.pointerId);gesture=cropGestureSnapshot()}
 cropCanvas.addEventListener('pointerup',releaseCropPointer);
 cropCanvas.addEventListener('pointercancel',releaseCropPointer);
-$('cropReset').onclick=()=>{Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});renderCrop()};
+$('cropReset').onclick=async()=>{if(cropAutoApplied&&originalPhotoForOcr){cropImage=new Image();cropImage.src=originalPhotoForOcr;await cropImage.decode();pendingPhoto=originalPhotoForOcr;cropAutoApplied=false}Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});$('cropDetectionStatus').textContent='Foto originale ripristinata.';renderCrop()};
 $('frontPhoto').onchange=async e=>{
  const f=e.target.files[0];if(!f)return;
  try{
