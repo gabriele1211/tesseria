@@ -426,7 +426,7 @@ function selectMerchantName(data){
  const scoreLine=s=>{
   const w=words(s),letters=(s.match(/\p{L}/gu)||[]).length;
   if(!w.length||letters<5||s.length>55)return -1;
-  if(/^(?:www|https|telefono|codice|tessera|punti|scadenza)\b/i.test(s))return -1;
+  if(/^(?:www|https|telefono|codice|tessera|punti|scadenza|card|fidelity|loyalty)\b/i.test(s))return -1;
   const isolated=(s.match(/(?:^|\s)\p{L}{1,2}(?=\s|$)/gu)||[]).length;
   const badCase=(s.match(/\b(?:\p{Lu}\p{Ll}{0,2}){3,}\b/gu)||[]).length;
   const irregular=isolated*12+badCase*12;
@@ -446,6 +446,7 @@ function selectMerchantName(data){
 // Dizionario locale di nomi commerciali: non invia immagini a servizi esterni.
 const LOYALTY_BRANDS=[
  ['Famila Club', ['famila club','famila','famila selex']],
+ ['Brico io', ['brico io','bricoio','brico i0','brico lo','bricoio card','brico io card']],
  ['Conad', ['conad','carta insieme']],
  ['Coop', ['coop','socio coop']],
  ['Esselunga', ['esselunga','fidaty']],
