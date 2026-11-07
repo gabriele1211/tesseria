@@ -112,3 +112,5 @@ body.scanner-open{overflow:hidden}
 
 /* v1.2.8: elimina il vecchio limite max-height:220px che rimpiccioliva l'intero SVG */
 #detail .barcodebox svg{width:100%!important;height:auto!important;max-height:none!important;max-width:none!important;min-height:0!important;display:block!important;object-fit:contain!important}
+
+#cropDetectionStatus{min-height:2.8em;color:#cfe4ff;font-size:.92rem}
