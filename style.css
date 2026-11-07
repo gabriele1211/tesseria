@@ -168,3 +168,8 @@ body.scanner-open{overflow:hidden}
 #editor .entry-save>button{box-sizing:border-box!important;width:100%!important;min-width:0!important;min-height:58px!important;height:100%!important;margin:0!important;padding:10px 4px!important;font-size:clamp(12px,3.6vw,17px)!important;line-height:1.2!important;font-weight:700!important;text-align:center!important;white-space:normal!important;display:flex!important;align-items:center!important;justify-content:center!important;border-radius:12px!important}
 #editor .entry-save>button[hidden]{display:none!important}
 #editor .entry-save:not(:has(#retryOcr:not([hidden]))){grid-template-columns:repeat(2,minmax(0,1fr))!important}
+
+/* v1.2.32 */
+body>header{position:sticky;top:0;z-index:90;padding-top:calc(16px + env(safe-area-inset-top));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));background:#123e72;isolation:isolate}
+#setupGuide .setup-step{margin:14px 0}#setupGuide .setup-step p{margin:9px 0;line-height:1.5}
+.scanner-frame.scan-verified .scanner-target{border-color:#39d48a!important;box-shadow:0 0 0 100vmax #0003,0 0 14px #39d48a!important}
