@@ -479,6 +479,36 @@ function brandSuggestion(data){
  hits.sort((a,b)=>b.score-a.score);
  return hits.length?hits[0].name:'';
 }
+function brandFromOcrFragments(data){
+ const raw=normalizeBrandText(data?.text);
+ // Il marchio puo essere separato in parole o righe diverse dall'OCR.
+ if(/\\bbric[o0]\\b/.test(raw)&&/\\b(?:io|i0|lo)\\b/.test(raw))return 'Brico io';
+ return brandSuggestion(data);
+}
+function prepareLogoOcr(src){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();img.onload=()=>{
+   const canvas=document.createElement('canvas');
+   canvas.width=1200;canvas.height=780;
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,780);
+   // Area centrale: ingrandisce il logo e lascia fuori la scritta CARD.
+   const sx=img.width*.13,sy=img.height*.13,sw=img.width*.74,sh=img.height*.55;
+   ctx.drawImage(img,sx,sy,sw,sh,0,0,1200,780);
+   const frame=ctx.getImageData(0,0,1200,780),p=frame.data;
+   for(let i=0;i<p.length;i+=4){
+    const r=p[i],g=p[i+1],b=p[i+2];
+    // Scritte chiare su fondo grigio + lettere rosse: nero su bianco.
+    const isWhiteText=r>155&&g>155&&b>150&&Math.max(r,g,b)-Math.min(r,g,b)<65;
+    const isRedText=r>95&&r>g*1.45&&r>b*1.3;
+    const darkBackground=r<140&&g<140&&b<140;
+    const ink=(isWhiteText||isRedText)&&!darkBackground;
+    p[i]=p[i+1]=p[i+2]=ink?0:255;
+   }
+   ctx.putImageData(frame,0,0);resolve(canvas.toDataURL('image/png'));
+  };img.onerror=reject;img.src=src;
+ });
+}
 async function recognizePhotoName(src){
  if(ocrBusy)return;
  const status=$('photoOcrStatus'),nameInput=$('name');ocrBusy=true;$('retryOcr').disabled=true;
@@ -507,7 +537,9 @@ async function recognizePhotoName(src){
    if(suggestion)source='marchio riconosciuto';
    else {
     const alt=await window.Tesseract.recognize(src,'eng',{tessedit_pageseg_mode:11});
-    suggestion=brandSuggestion(alt.data)||await commercialColorSuggestion(src,[original.data?.text,second.data?.text,alt.data?.text])||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
+    suggestion=brandFromOcrFragments(alt.data)||brandFromOcrFragments(original.data)||brandFromOcrFragments(second.data);
+    if(!suggestion){const logo=await prepareLogoOcr(src);const logoRead=await window.Tesseract.recognize(logo,'eng',{tessedit_pageseg_mode:6});suggestion=brandFromOcrFragments(logoRead.data);}
+    suggestion=suggestion||await commercialColorSuggestion(src,[original.data?.text,second.data?.text,alt.data?.text])||selectMerchantName(original.data)||selectMerchantName(second.data)||selectMerchantName(alt.data);
     if(suggestion==='Famila Club'||brandSuggestion(alt.data))source='marchio riconosciuto';
    }
   }
