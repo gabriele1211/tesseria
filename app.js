@@ -136,52 +136,95 @@ async function capturePhoto(){
  }finally{photoCaptureBusy=false}
 }
 $('takePhoto').onclick=capturePhoto;
-function detectCardRect(img){
- // Ritaglio prudente per tessere chiare su sfondo scuro; non altera il file originale.
- const c=document.createElement('canvas');c.width=320;c.height=Math.max(1,Math.round(320*img.height/img.width));
+// Rilevatore geometrico locale: stima i quattro lati con scansioni multiple e fit lineare.
+// Nessuna immagine viene trasmessa a servizi esterni.
+function detectCardCorners(img){
+ const c=document.createElement('canvas');c.width=360;c.height=Math.round(360*img.height/img.width);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,c.width,c.height);
  const w=c.width,h=c.height,p=ctx.getImageData(0,0,w,h).data;
- const lum=(x,y)=>{const i=(y*w+x)*4;return .299*p[i]+.587*p[i+1]+.114*p[i+2]};
- const corners=[lum(3,3),lum(w-4,3),lum(3,h-4),lum(w-4,h-4)].sort((a,b)=>a-b);
- const bg=(corners[1]+corners[2])/2,center=lum(w>>1,h>>1);
- if(center-bg<55)return null;
- const threshold=bg+(center-bg)*.52;
- const rows=[.25,.4,.6,.75].map(f=>Math.round(h*f));
- const cols=[.25,.4,.6,.75].map(f=>Math.round(w*f));
- const bounds=[];
- for(const y of rows){
+ const lum=new Float32Array(w*h);for(let i=0;i<lum.length;i++){const k=i*4;lum[i]=.299*p[k]+.587*p[k+1]+.114*p[k+2]}
+ const at=(x,y)=>lum[Math.max(0,Math.min(h-1,y))*w+Math.max(0,Math.min(w-1,x))];
+ const bg=[at(3,3),at(w-4,3),at(3,h-4),at(w-4,h-4)].sort((a,b)=>a-b);
+ const background=(bg[1]+bg[2])/2,center=at(w>>1,h>>1);
+ if(Math.abs(center-background)<38)return null;
+ const bright=center>background,threshold=(center+background)/2;
+ const inside=(x,y)=>bright?at(x,y)>threshold:at(x,y)<threshold;
+ const left=[],right=[],top=[],bottom=[];
+ for(let y=Math.round(h*.18);y<h*.82;y+=Math.max(2,Math.round(h/28))){
   let l=-1,r=-1;
-  for(let x=2;x<w/2;x++)if(lum(x,y)>threshold&&lum(x+1,y)>threshold){l=x;break}
-  for(let x=w-3;x>w/2;x--)if(lum(x,y)>threshold&&lum(x-1,y)>threshold){r=x;break}
-  if(l<0||r<0)return null;bounds.push([l,r]);
+  for(let x=3;x<w*.48;x++)if(inside(x,y)&&inside(x+1,y)&&inside(x+2,y)){l=x;break}
+  for(let x=w-4;x>w*.52;x--)if(inside(x,y)&&inside(x-1,y)&&inside(x-2,y)){r=x;break}
+  if(l>=0&&r>=0&&r-l>w*.42){left.push([y,l]);right.push([y,r])}
  }
- const vertical=[];
- for(const x of cols){
-  let t=-1,b=-1;
-  for(let y=2;y<h/2;y++)if(lum(x,y)>threshold&&lum(x,y+1)>threshold){t=y;break}
-  for(let y=h-3;y>h/2;y--)if(lum(x,y)>threshold&&lum(x,y-1)>threshold){b=y;break}
-  if(t<0||b<0)return null;vertical.push([t,b]);
+ for(let x=Math.round(w*.18);x<w*.82;x+=Math.max(2,Math.round(w/28))){
+  let t=-1,d=-1;
+  for(let y=3;y<h*.48;y++)if(inside(x,y)&&inside(x,y+1)&&inside(x,y+2)){t=y;break}
+  for(let y=h-4;y>h*.52;y--)if(inside(x,y)&&inside(x,y-1)&&inside(x,y-2)){d=y;break}
+  if(t>=0&&d>=0&&d-t>h*.38){top.push([x,t]);bottom.push([x,d])}
  }
- const avg=(arr,k)=>arr.reduce((a,v)=>a+v[k],0)/arr.length;
- const left=avg(bounds,0),right=avg(bounds,1),top=avg(vertical,0),bottom=avg(vertical,1);
- if(bounds.some(v=>Math.abs(v[0]-left)>10||Math.abs(v[1]-right)>10)||vertical.some(v=>Math.abs(v[0]-top)>10||Math.abs(v[1]-bottom)>10))return null;
- const width=right-left,height=bottom-top;
- if(width<w*.48||height<h*.45||width/height<1.3||width/height>2.3)return null;
- const sx=img.width/w,sy=img.height/h;
- return {x:Math.max(0,(left-2)*sx),y:Math.max(0,(top-2)*sy),width:Math.min(img.width,(width+4)*sx),height:Math.min(img.height,(height+4)*sy)};
+ const fit=pts=>{
+  if(pts.length<7)return null;
+  const regression=items=>{let sx=0,sy=0,sxx=0,sxy=0;for(const [x,y] of items){sx+=x;sy+=y;sxx+=x*x;sxy+=x*y}const n=items.length,den=n*sxx-sx*sx;if(Math.abs(den)<.001)return null;const m=(n*sxy-sx*sy)/den;return {m,b:(sy-m*sx)/n}};
+  let line=regression(pts);if(!line)return null;
+  const errors=pts.map(([x,y])=>Math.abs(y-line.m*x-line.b)).sort((a,b)=>a-b);
+  const tolerance=Math.max(3,errors[Math.floor(errors.length*.65)]*2.5);
+  const kept=pts.filter(([x,y])=>Math.abs(y-line.m*x-line.b)<=tolerance);
+  if(kept.length<7)return null;line=regression(kept);return line;
+ };
+ const L=fit(left),R=fit(right),T=fit(top),B=fit(bottom);
+ if(!L||!R||!T||!B)return null;
+ // L/R: x=m*y+b; T/B: y=m*x+b.
+ const intersect=(side,edge)=>{const y=(edge.m*side.b+edge.b)/(1-edge.m*side.m);return {x:side.m*y+side.b,y}};
+ const q=[intersect(L,T),intersect(R,T),intersect(R,B),intersect(L,B)];
+ if(q.some(pt=>!Number.isFinite(pt.x)||!Number.isFinite(pt.y)||pt.x<2||pt.x>w-3||pt.y<2||pt.y>h-3))return null;
+ const dist=(u,v)=>Math.hypot(u.x-v.x,u.y-v.y);
+ const width=(dist(q[0],q[1])+dist(q[3],q[2]))/2,height=(dist(q[0],q[3])+dist(q[1],q[2]))/2;
+ if(width<w*.4||height<h*.35||width/height<1.2||width/height>2.5)return null;
+ const area=Math.abs(q.reduce((sum,v,i)=>sum+v.x*q[(i+1)%4].y-q[(i+1)%4].x*v.y,0)/2);
+ if(area<w*h*.17)return null;
+ return q.map(pt=>({x:pt.x*img.width/w,y:pt.y*img.height/h}));
+}
+function rectifyCard(img,quad){
+ const W=960,H=Math.round(W/1.586);
+ // Omografia inversa: coordinate del rettangolo di destinazione -> quadrilatero originale.
+ const dst=[[0,0],[1,0],[1,1],[0,1]];
+ const mat=[],rhs=[];
+ for(let i=0;i<4;i++){
+  const [u,v]=dst[i],{x,y}=quad[i];
+  mat.push([u,v,1,0,0,0,-u*x,-v*x]);rhs.push(x);
+  mat.push([0,0,0,u,v,1,-u*y,-v*y]);rhs.push(y);
+ }
+ for(let k=0;k<8;k++){let best=k;for(let j=k+1;j<8;j++)if(Math.abs(mat[j][k])>Math.abs(mat[best][k]))best=j;
+  if(Math.abs(mat[best][k])<1e-9)throw Error('Prospettiva non calcolabile');
+  [mat[k],mat[best]]=[mat[best],mat[k]];[rhs[k],rhs[best]]=[rhs[best],rhs[k]];
+  const d=mat[k][k];for(let j=k;j<8;j++)mat[k][j]/=d;rhs[k]/=d;
+  for(let i=0;i<8;i++)if(i!==k){const f=mat[i][k];for(let j=k;j<8;j++)mat[i][j]-=f*mat[k][j];rhs[i]-=f*rhs[k]}
+ }
+ const source=document.createElement('canvas');source.width=img.width;source.height=img.height;
+ const sc=source.getContext('2d',{willReadFrequently:true});sc.drawImage(img,0,0);
+ const sp=sc.getImageData(0,0,source.width,source.height).data;
+ const out=document.createElement('canvas');out.width=W;out.height=H;
+ const oc=out.getContext('2d'),frame=oc.createImageData(W,H),dp=frame.data,iw=source.width,ih=source.height;
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+  const u=x/(W-1),v=y/(H-1),den=rhs[6]*u+rhs[7]*v+1;
+  const sx=(rhs[0]*u+rhs[1]*v+rhs[2])/den,sy=(rhs[3]*u+rhs[4]*v+rhs[5])/den;
+  const ix=Math.max(0,Math.min(iw-1,Math.round(sx))),iy=Math.max(0,Math.min(ih-1,Math.round(sy)));
+  const si=(iy*iw+ix)*4,di=(y*W+x)*4;
+  dp[di]=sp[si];dp[di+1]=sp[si+1];dp[di+2]=sp[si+2];dp[di+3]=255;
+ }
+ oc.putImageData(frame,0,0);return out.toDataURL('image/jpeg',.9);
 }
 async function preparePhotoCrop(src){
  pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
- // Rileva una tessera chiara su uno sfondo più scuro, senza tagliare se incerta.
- const rect=detectCardRect(cropImage);
- if(rect){
-  const ratio=1.586,iw=cropImage.width,ih=cropImage.height;
-  const zoom=Math.min(iw/rect.width,ih/rect.height);
-  cropState.zoom=Math.max(1,Math.min(3.5,zoom));
-  cropState.x=(iw/2-(rect.x+rect.width/2))*cropState.zoom/iw;
-  cropState.y=(ih/2-(rect.y+rect.height/2))*cropState.zoom/ih;
- }
+ try{
+  const corners=detectCardCorners(cropImage);
+  if(corners){
+   const corrected=rectifyCard(cropImage,corners);
+   pendingPhoto=corrected;cropImage=new Image();cropImage.src=corrected;await cropImage.decode();
+   $('cropDetectionStatus').textContent='Quattro angoli individuati: prospettiva corretta automaticamente. Controlla il risultato.';
+  }else $('cropDetectionStatus').textContent='Bordi non riconosciuti con sicurezza: regola la foto con le dita.';
+ }catch(err){$('cropDetectionStatus').textContent='Correzione automatica non riuscita: puoi regolare la foto manualmente.'}
  $('cropModal').hidden=false;requestAnimationFrame(renderCrop);
 }
 let pendingPhoto=null,cropImage=null;
