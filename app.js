@@ -298,7 +298,9 @@ function commercialColorSuggestion(src,ocrTexts){
   };img.onerror=()=>resolve('');img.src=src;
  });
 }
+let originalPhotoForOcr=null;
 async function preparePhotoCrop(src){
+ originalPhotoForOcr=src;
  pendingPhoto=src;cropImage=new Image();cropImage.src=src;await cropImage.decode();
  Object.assign(cropState,{zoom:1,rotation:0,x:0,y:0});
  try{
@@ -368,7 +370,7 @@ $('confirmCrop').onclick=async()=>{
  photoDraft=canvas.toDataURL('image/jpeg',.86);photoRemove=false;
  $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;$('retryOcr').hidden=false;
  $('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value='';
- if(!$('name').value.trim())recognizePhotoName(photoDraft);
+ if(!$('name').value.trim())recognizePhotoName(originalPhotoForOcr||photoDraft);
 };
 let ocrBusy=false;
 function enhanceOcrImage(src){
@@ -484,7 +486,7 @@ async function recognizePhotoName(src){
  finally{ocrBusy=false;$('retryOcr').disabled=false}
 }
 
-$('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(photoDraft);else toast('Prima scatta una fotografia')};
+$('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(originalPhotoForOcr||photoDraft);else toast('Prima scatta una fotografia')};
 
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
 $('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(),number=$('number').value.trim().toUpperCase(),format=$('format').value;try{encode(format,number)}catch(err){toast(err.message);return}if(!name)return toast('Inserisci un nome');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
