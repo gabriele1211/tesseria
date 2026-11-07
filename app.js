@@ -9,19 +9,19 @@ let homeRenderId=0;
 function render(){
  const root=$('cards');root.replaceChildren();
  const q=$('search').value.trim().toLocaleLowerCase('it');
- const matches=cards.filter(c=>c.name.toLocaleLowerCase('it').includes(q));
+ const matches=cards.filter(c=>(c.name+' '+c.number).toLocaleLowerCase('it').includes(q));
  $('empty').hidden=matches.length>0;
  const renderId=++homeRenderId;
  for(const c of matches){
   const b=document.createElement('button');b.type='button';b.className='card wallet-card';b.setAttribute('aria-label','Apri tessera '+c.name);
   const visual=document.createElement('span');visual.className='wallet-visual';
   const fallback=document.createElement('span');fallback.className='wallet-fallback';
-  const monogram=document.createElement('span');monogram.className='wallet-monogram';monogram.textContent=(c.name.trim()[0]||'T').toLocaleUpperCase('it');
-  const brand=document.createElement('span');brand.className='wallet-brand';brand.textContent=c.name;
+  const monogram=document.createElement('span');monogram.className='wallet-monogram';monogram.textContent='T';
+  const brand=document.createElement('span');brand.className='wallet-brand';brand.textContent=c.name.startsWith('Tessera '+c.number)?'La tua tessera':c.name;
   const deco=document.createElement('span');deco.className='wallet-deco';deco.setAttribute('aria-hidden','true');
   fallback.append(monogram,brand,deco);visual.append(fallback);
   const info=document.createElement('span');info.className='wallet-info';
-  const name=document.createElement('strong');name.textContent=c.name;
+  const name=document.createElement('strong');name.textContent=c.name.startsWith('Tessera '+c.number)?'Tessera fotografata':c.name;
   const number=document.createElement('small');number.textContent=c.number;
   const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';
   info.append(name,number);b.append(visual,info,arrow);b.onclick=()=>detail(c.id);root.append(b);
@@ -397,9 +397,9 @@ $('confirmCrop').onclick=async()=>{
  const source=$('cropCanvas'),canvas=document.createElement('canvas');canvas.width=960;canvas.height=Math.round(960/1.586);
  canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);
  photoDraft=canvas.toDataURL('image/jpeg',.86);photoRemove=false;
- $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;$('retryOcr').hidden=false;
+ $('photoPreview').src=photoDraft;$('photoPreview').hidden=false;$('removePhoto').hidden=false;
  $('cropModal').hidden=true;pendingPhoto=null;cropImage=null;$('frontPhoto').value='';
- if(!$('name').value.trim())recognizePhotoName(originalPhotoForOcr||photoDraft);
+ // Il fronte fotografato identifica la tessera: OCR non necessario.
 };
 let ocrBusy=false;
 function enhanceOcrImage(src){
@@ -572,7 +572,7 @@ async function recognizePhotoName(src){
 $('retryOcr').onclick=()=>{if(photoDraft)recognizePhotoName(originalPhotoForOcr||photoDraft);else toast('Prima scatta una fotografia')};
 
 $('removePhoto').onclick=()=>{photoDraft=null;photoRemove=true;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true};
-$('form').onsubmit=async e=>{e.preventDefault();const name=$('name').value.trim(),number=$('number').value.trim().toUpperCase(),format=$('format').value;try{encode(format,number)}catch(err){toast(err.message);return}if(!name)return toast('Inserisci un nome');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
+$('form').onsubmit=async e=>{e.preventDefault();const number=$('number').value.trim().toUpperCase(),format=$('format').value;const existing=editId?cards.find(x=>x.id===editId):null;const name=existing?.name||('Tessera '+number);try{encode(format,number)}catch(err){toast(err.message);return}if(!photoDraft&&!photoRemove&&!editId)return toast('Fotografa il fronte della tessera prima di salvare');if(editId&&!photoDraft){const stored=await TesseriaPhotos.get(editId).catch(()=>null);if(!stored)return toast('La foto del fronte è obbligatoria');}if(photoRemove&&!photoDraft)return toast('La foto del fronte è obbligatoria');let id=editId;if(editId){const c=cards.find(x=>x.id===editId);if(c)Object.assign(c,{name,number,format})}else{id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();cards.push({id,name,number,format})}if(save()){try{if(photoDraft)await TesseriaPhotos.put(id,photoDraft);else if(photoRemove)await TesseriaPhotos.del(id)}catch(err){toast('Tessera salvata, ma foto non salvata: '+err.message)}show('home')}};
 $('edit').onclick=()=>openEditor(cards.find(c=>c.id===current));$('delete').onclick=()=>{if(confirm('Eliminare definitivamente questa tessera?')){cards=cards.filter(c=>c.id!==current);if(save()){TesseriaPhotos.del(current).catch(()=>{});show('home')}}};$('export').onclick=async()=>{try{const withPhotos=await Promise.all(cards.map(async c=>({...c,frontPhoto:await TesseriaPhotos.get(c.id)||null})));const blob=new Blob([JSON.stringify({app:'Tesseria',version:2,cards:withPhotos},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='tesseria-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}catch(err){toast('Backup non riuscito: '+err.message)}};
 $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>35_000_000)throw Error('Backup troppo grande');const data=JSON.parse(await f.text());if(data.app!=='Tesseria'||!Array.isArray(data.cards)||data.cards.length>5000)throw Error('Backup non valido');const incoming=data.cards.map(c=>{if(typeof c.name!=='string'||!c.name.trim()||c.name.length>80||typeof c.number!=='string'||c.number.length>120)throw Error('Tessera non valida');encode(c.format,c.number);if(c.frontPhoto!=null&&(typeof c.frontPhoto!=='string'||!c.frontPhoto.startsWith('data:image/jpeg;base64,')))throw Error('Foto nel backup non valida');return {id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),name:c.name,number:c.number,format:c.format,frontPhoto:c.frontPhoto||null}});if(!confirm(`Importare ${incoming.length} tessere? Le tessere attuali verranno mantenute.`))return;const before=cards.slice();cards.push(...incoming.map(({frontPhoto,...c})=>c));if(!save()){cards=before;return}let failures=0;for(const c of incoming){if(c.frontPhoto)try{await TesseriaPhotos.put(c.id,c.frontPhoto)}catch{failures++}}toast(failures?'Tessere importate; alcune foto non salvate':'Backup importato');show('home')}catch(err){toast(err.message)}finally{e.target.value=''}};
 let html5Scanner=null,scanToken=0,scanEvidence=new Map();
