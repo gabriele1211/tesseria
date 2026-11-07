@@ -245,27 +245,44 @@ function rectifyCard(img,quad){
 }
 // Segmentazione geometrica di sicurezza: individua una tessera chiara su fondo scuro.
 function detectBrightCardBounds(img){
- const canvas=document.createElement('canvas'),w=320,h=Math.round(320*img.height/img.width);
- canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+ // Individua i bordi tramite transizioni scuro/chiaro per ogni riga e colonna.
+ // Non usa i percentili dei pixel chiari, che includono il tavolo e tagliano i bordi.
+ const w=360,h=Math.max(120,Math.round(w*img.height/img.width));
+ const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
  const p=ctx.getImageData(0,0,w,h).data;
- const lum=(x,y)=>{const k=(y*w+x)*4;return .299*p[k]+.587*p[k+1]+.114*p[k+2]};
- const bg=[lum(2,2),lum(w-3,2),lum(2,h-3),lum(w-3,h-3)].sort((x,y)=>x-y);
- const dark=(bg[1]+bg[2])/2;
- if(dark>115)return null;
- const xs=[],ys=[];
- for(let y=3;y<h-3;y+=3)for(let x=3;x<w-3;x+=3){
-  if(lum(x,y)>dark+65){xs.push(x);ys.push(y)}
+ const light=(x,y)=>{const i=(y*w+x)*4;return .299*p[i]+.587*p[i+1]+.114*p[i+2]};
+ const corners=[light(3,3),light(w-4,3),light(3,h-4),light(w-4,h-4)].sort((a,b)=>a-b);
+ const background=(corners[1]+corners[2])/2;
+ if(background>135)return null;
+ const center=light(w>>1,h>>1);
+ if(center-background<55)return null;
+ const threshold=Math.min(220,background+(center-background)*.48);
+ const samples=[];
+ for(let y=Math.round(h*.22);y<=h*.78;y+=Math.max(3,Math.round(h*.06))){
+  let left=-1,right=-1;
+  for(let x=3;x<w*.48;x++)if(light(x,y)>threshold&&light(x+1,y)>threshold&&light(x+2,y)>threshold){left=x;break}
+  for(let x=w-4;x>w*.52;x--)if(light(x,y)>threshold&&light(x-1,y)>threshold&&light(x-2,y)>threshold){right=x;break}
+  if(left>3&&right<w-4&&right-left>w*.5)samples.push({y,left,right});
  }
- if(xs.length<90)return null;
- xs.sort((x,y)=>x-y);ys.sort((x,y)=>x-y);
- const q=(arr,f)=>arr[Math.floor((arr.length-1)*f)];
- const left=q(xs,.025),right=q(xs,.975),top=q(ys,.025),bottom=q(ys,.975);
- if(right-left<w*.48||bottom-top<h*.45)return null;
- const pad=2;
- return [{x:Math.max(0,left-pad)*img.width/w,y:Math.max(0,top-pad)*img.height/h},
- {x:Math.min(w-1,right+pad)*img.width/w,y:Math.max(0,top-pad)*img.height/h},
- {x:Math.min(w-1,right+pad)*img.width/w,y:Math.min(h-1,bottom+pad)*img.height/h},
- {x:Math.max(0,left-pad)*img.width/w,y:Math.min(h-1,bottom+pad)*img.height/h}];
+ const vertical=[];
+ for(let x=Math.round(w*.22);x<=w*.78;x+=Math.max(3,Math.round(w*.06))){
+  let top=-1,bottom=-1;
+  for(let y=3;y<h*.48;y++)if(light(x,y)>threshold&&light(x,y+1)>threshold){top=y;break}
+  for(let y=h-4;y>h*.52;y--)if(light(x,y)>threshold&&light(x,y-1)>threshold){bottom=y;break}
+  if(top>3&&bottom<h-4&&bottom-top>h*.45)vertical.push({x,top,bottom});
+ }
+ if(samples.length<6||vertical.length<6)return null;
+ const median=(items,key)=>items.map(v=>v[key]).sort((a,b)=>a-b)[Math.floor(items.length/2)];
+ const L=median(samples,'left'),R=median(samples,'right'),T=median(vertical,'top'),B=median(vertical,'bottom');
+ if(R-L<w*.5||B-T<h*.45)return null;
+ if(samples.filter(q=>Math.abs(q.left-L)<w*.035&&Math.abs(q.right-R)<w*.035).length<samples.length*.7)return null;
+ if(vertical.filter(q=>Math.abs(q.top-T)<h*.045&&Math.abs(q.bottom-B)<h*.045).length<vertical.length*.7)return null;
+ const pad=2.5;
+ return [{x:Math.max(0,L-pad)*img.width/w,y:Math.max(0,T-pad)*img.height/h},
+ {x:Math.min(w-1,R+pad)*img.width/w,y:Math.max(0,T-pad)*img.height/h},
+ {x:Math.min(w-1,R+pad)*img.width/w,y:Math.min(h-1,B+pad)*img.height/h},
+ {x:Math.max(0,L-pad)*img.width/w,y:Math.min(h-1,B+pad)*img.height/h}];
 }
 function commercialColorSuggestion(src,ocrTexts){
  // Profilo visivo prudente: palette arancione e marchio SELEX/Famila nel testo OCR.
