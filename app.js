@@ -355,7 +355,7 @@ const SCANNER_URL='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.
 function scannerStatus(message){const el=$('scanStatus');if(el)el.textContent=message}
 function stopCamera(){
  const modal=$('scannerModal');if(modal){modal.hidden=true;document.body.classList.remove('scanner-open')}
- scanToken++;scanning=false;scanEvidence.clear();
+ scanToken++;scanning=false;scanEvidence.clear();scanConfirmed=null;$('scanReview').hidden=true;
  const reader=html5Scanner;html5Scanner=null;
  if(reader){Promise.resolve(reader.stop()).catch(()=>{}).then(()=>reader.clear()).catch(()=>{})}
  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
@@ -375,13 +375,20 @@ function validatedCandidate(format,value){
  }
  return !!v;
 }
+let scanConfirmed=null;
 function acceptScan(format,value){
  const mapping={EAN_13:'EAN13',EAN_8:'EAN8',CODE_39:'CODE39',ITF:'ITF',EAN13:'EAN13',EAN8:'EAN8',CODE39:'CODE39'};
  const fmt=mapping[format];if(!fmt){scannerStatus('Codice '+format+' riconosciuto ma non ancora riproducibile da Tesseria');return false}
  try{encode(fmt,value)}catch{scannerStatus('Codice rilevato ma non riproducibile: inserisci il numero manualmente');return false}
- $('format').value=fmt;$('number').value=value;stopCamera();
- $('scanMessage').textContent='Numero letto: confronta ogni cifra con la tessera prima di salvare.';
- toast('Numero letto: verifica le cifre');return true;
+ scanConfirmed={format:fmt,value};
+ $('scanReviewNumber').textContent=value;
+ $('scanReviewFormat').textContent='Formato '+fmt+' · confronta tutte le cifre, soprattutto la prima.';
+ $('scanReview').hidden=false;
+ scannerStatus('Lettura verificata: controlla il numero prima di confermare.');
+ scanning=false;
+ const reader=html5Scanner;html5Scanner=null;
+ if(reader)Promise.resolve(reader.stop()).catch(()=>{}).then(()=>reader.clear()).catch(()=>{});
+ return true;
 }
 function loadScanner(){
  if(window.Html5Qrcode?.SupportedFormats)return Promise.resolve();
@@ -410,8 +417,8 @@ async function startHtml5Scanner(token){
   for(const [k,v] of scanEvidence)if(now-v.last>6000)scanEvidence.delete(k);
   const item=scanEvidence.get(key)||{count:0,last:now};item.count++;item.last=now;scanEvidence.set(key,item);
   // Evita falsi EAN-8 estratti da porzioni di un EAN-13.
-  const required=fmt==='EAN_8'?3:1;
-  if(item.count<required){scannerStatus('Codice '+fmt+' · conferma '+item.count+'/'+required);return}
+  const required=fmt==='EAN_8'?4:(fmt==='EAN_13'?3:2);
+  if(item.count<required){scannerStatus('Verifica lettura '+item.count+'/'+required+' · mantieni il codice inquadrato');return}
   scannerStatus('Codice '+fmt+' rilevato');
   acceptScan(fmt,value);
  };
@@ -432,12 +439,21 @@ function scanErrorMessage(error){
 }
 $('scan').onclick=async()=>{
  if(scanning)return;
- $('scannerModal').hidden=false;document.body.classList.add('scanner-open');
+ $('scannerModal').hidden=false;document.body.classList.add('scanner-open');$('scanReview').hidden=true;scanConfirmed=null;scanEvidence.clear();
  $('scanMessage').textContent='';scannerStatus('Preparazione lettore…');
  const token=++scanToken;
  try{await startHtml5Scanner(token)}
  catch(err){if(token!==scanToken)return;const msg=scanErrorMessage(err);scannerStatus(msg);$('scanMessage').textContent=String(err?.message||'').slice(0,120);scanning=false;toast(msg)}
 };
+$('confirmScan').onclick=()=>{
+ if(!scanConfirmed)return;
+ const {format,value}=scanConfirmed;
+ $('format').value=format;$('number').value=value;
+ stopCamera();
+ $('scanMessage').textContent='Codice confermato. Controlla i dati e salva la tessera.';
+ toast('Codice confermato');
+};
+$('retryScan').onclick=()=>{stopCamera();$('scan').click()};
 load();show('home');
 (function setupOnboarding(){
  const guide=$('setupGuide'),cameraText=$('cameraGuideText'),cameraResult=$('cameraGuideResult'),installText=$('installGuideText'),installBtn=$('installPwa');
