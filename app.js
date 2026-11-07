@@ -355,6 +355,41 @@ function selectMerchantName(data){
  if(tokens.length>=4 && tokens.filter(t=>/^[A-Z][a-z]{0,2}$/.test(t)).length>=2)return '';
  return best.s.slice(0,80);
 }
+// Dizionario locale di nomi commerciali: non invia immagini a servizi esterni.
+const LOYALTY_BRANDS=[
+ ['Famila Club', ['famila club','famila','famila selex']],
+ ['Conad', ['conad','carta insieme']],
+ ['Coop', ['coop','socio coop']],
+ ['Esselunga', ['esselunga','fidaty']],
+ ['Carrefour', ['carrefour','payback carrefour']],
+ ['Lidl', ['lidl','lidl plus']],
+ ['Eurospin', ['eurospin']],
+ ['Despar', ['despar','interspar','eurospar']],
+ ['Pam', ['pam panorama','pam']],
+ ['NaturaSì', ['naturasì','natura si']],
+ ['IKEA Family', ['ikea family']],
+ ['Decathlon', ['decathlon']],
+ ['Sephora', ['sephora']],
+ ['OVS', ['ovs']],
+ ['Tigotà', ['tigotà','tigota']],
+ ['Acqua & Sapone', ['acqua sapone']],
+ ['La Feltrinelli', ['feltrinelli']]
+];
+function normalizeBrandText(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
+function brandSuggestion(data){
+ const text=normalizeBrandText(data?.text);
+ const tokens=text.split(' ').filter(Boolean);
+ const hits=[];
+ for(const [name,aliases] of LOYALTY_BRANDS){
+  for(const alias of aliases){
+   const target=normalizeBrandText(alias);
+   if(target.length<4)continue;
+   if((' '+text+' ').includes(' '+target+' '))hits.push({name,alias:target,score:target.length});
+  }
+ }
+ hits.sort((a,b)=>b.score-a.score);
+ return hits.length?hits[0].name:'';
+}
 async function recognizePhotoName(src){
  if(ocrBusy)return;
  const status=$('photoOcrStatus');ocrBusy=true;$('retryOcr').disabled=true;
@@ -369,20 +404,18 @@ async function recognizePhotoName(src){
    });
   }
   const original=await window.Tesseract.recognize(src,'ita+eng',{});
-  let suggestion=selectMerchantName(original.data);
+  let suggestion=brandSuggestion(original.data);
+  let source=suggestion?'marchio riconosciuto':'testo OCR';
   if(!suggestion){
    const enhanced=await enhanceOcrImage(src);
    const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
-   suggestion=selectMerchantName(second.data);
-  }
-  if(!suggestion){
-   const enhanced=await enhanceOcrImage(src);
-   const second=await window.Tesseract.recognize(enhanced,'ita+eng',{});
-   suggestion=selectMerchantName(second.data);
+   suggestion=brandSuggestion(second.data);
+   if(suggestion)source='marchio riconosciuto';
+   else suggestion=selectMerchantName(original.data)||selectMerchantName(second.data);
   }
   if(suggestion){
    if(!$('name').value.trim()||/^(?:[A-Za-z]\s+){2,}[A-Za-z]?$/i.test($('name').value.trim()))$('name').value=suggestion;
-   status.textContent='Nome suggerito: '+suggestion+'. Verifica prima di salvare.';
+   status.textContent='Nome suggerito ('+source+'): '+suggestion+'. Verifica prima di salvare.';
   }else status.textContent='Testo non riconosciuto con sufficiente affidabilità. Scrivi il nome manualmente.';
  }catch(err){status.textContent='OCR non disponibile: '+String(err?.message||err).slice(0,90)}
  finally{ocrBusy=false;$('retryOcr').disabled=false}
