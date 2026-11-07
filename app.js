@@ -245,44 +245,73 @@ function rectifyCard(img,quad){
 }
 // Segmentazione geometrica di sicurezza: individua una tessera chiara su fondo scuro.
 function detectBrightCardBounds(img){
- // Individua i bordi tramite transizioni scuro/chiaro per ogni riga e colonna.
- // Non usa i percentili dei pixel chiari, che includono il tavolo e tagliano i bordi.
- const w=360,h=Math.max(120,Math.round(w*img.height/img.width));
- const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
- const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
- const p=ctx.getImageData(0,0,w,h).data;
- const light=(x,y)=>{const i=(y*w+x)*4;return .299*p[i]+.587*p[i+1]+.114*p[i+2]};
- const corners=[light(3,3),light(w-4,3),light(3,h-4),light(w-4,h-4)].sort((a,b)=>a-b);
- const background=(corners[1]+corners[2])/2;
- if(background>135)return null;
- const center=light(w>>1,h>>1);
- if(center-background<55)return null;
- const threshold=Math.min(220,background+(center-background)*.48);
- const samples=[];
- for(let y=Math.round(h*.22);y<=h*.78;y+=Math.max(3,Math.round(h*.06))){
-  let left=-1,right=-1;
-  for(let x=3;x<w*.48;x++)if(light(x,y)>threshold&&light(x+1,y)>threshold&&light(x+2,y)>threshold){left=x;break}
-  for(let x=w-4;x>w*.52;x--)if(light(x,y)>threshold&&light(x-1,y)>threshold&&light(x-2,y)>threshold){right=x;break}
-  if(left>3&&right<w-4&&right-left>w*.5)samples.push({y,left,right});
+ // Segmentazione cromatica: include sia il bianco sia le aree arancioni/rosse
+ // della tessera, evitando che la soglia di luminosita tagli il bordo inferiore.
+ const w=480,h=Math.max(140,Math.round(w*img.height/img.width));
+ const c=document.createElement('canvas');c.width=w;c.height=h;
+ const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+ const data=ctx.getImageData(0,0,w,h).data;
+ const pix=(x,y)=>{const i=(Math.round(y)*w+Math.round(x))*4;return [data[i],data[i+1],data[i+2]]};
+ const background=[pix(3,3),pix(w-4,3),pix(3,h-4),pix(w-4,h-4)];
+ const bg=background.map(v=>v.reduce((a,b)=>a+b,0)/3).sort((a,b)=>a-b)[1];
+ const foreground=(x,y)=>{
+  const [r,g,b]=pix(x,y),max=Math.max(r,g,b),min=Math.min(r,g,b);
+  const l=(r+g+b)/3,s=max-min;
+  // Tessera bianca/chiara o arancione/rossa molto satura.
+  return (l>Math.max(130,bg+45)&&s<95)||
+    (r>95&&r>g*1.34&&r>b*1.48&&s>65)||
+    (l>bg+68&&s<125);
+ };
+ const runs=(horizontal,fixed)=>{
+  const len=horizontal?w:h,arr=[];
+  for(let j=2;j<len-2;j++){
+   const yes=horizontal?foreground(j,fixed):foreground(fixed,j);
+   if(yes)arr.push(j);
+  }
+  if(arr.length<12)return null;
+  let best=null,lo=arr[0],prev=lo;
+  for(let i=1;i<=arr.length;i++){
+   const k=arr[i];
+   if(k!==prev+1){
+    if(!best||prev-lo>best[1]-best[0])best=[lo,prev];
+    lo=k;
+   }
+   prev=k;
+  }
+  return best&&best[1]-best[0]>len*.42?best:null;
+ };
+ const lr=[],tb=[];
+ for(let y=Math.round(h*.24);y<=h*.76;y+=Math.max(3,Math.round(h/35))){
+  const r=runs(true,y);if(r)lr.push([y,r[0],r[1]]);
  }
- const vertical=[];
- for(let x=Math.round(w*.22);x<=w*.78;x+=Math.max(3,Math.round(w*.06))){
-  let top=-1,bottom=-1;
-  for(let y=3;y<h*.48;y++)if(light(x,y)>threshold&&light(x,y+1)>threshold){top=y;break}
-  for(let y=h-4;y>h*.52;y--)if(light(x,y)>threshold&&light(x,y-1)>threshold){bottom=y;break}
-  if(top>3&&bottom<h-4&&bottom-top>h*.45)vertical.push({x,top,bottom});
+ for(let x=Math.round(w*.25);x<=w*.75;x+=Math.max(3,Math.round(w/35))){
+  const r=runs(false,x);if(r)tb.push([x,r[0],r[1]]);
  }
- if(samples.length<6||vertical.length<6)return null;
- const median=(items,key)=>items.map(v=>v[key]).sort((a,b)=>a-b)[Math.floor(items.length/2)];
- const L=median(samples,'left'),R=median(samples,'right'),T=median(vertical,'top'),B=median(vertical,'bottom');
- if(R-L<w*.5||B-T<h*.45)return null;
- if(samples.filter(q=>Math.abs(q.left-L)<w*.035&&Math.abs(q.right-R)<w*.035).length<samples.length*.7)return null;
- if(vertical.filter(q=>Math.abs(q.top-T)<h*.045&&Math.abs(q.bottom-B)<h*.045).length<vertical.length*.7)return null;
- const pad=2.5;
- return [{x:Math.max(0,L-pad)*img.width/w,y:Math.max(0,T-pad)*img.height/h},
- {x:Math.min(w-1,R+pad)*img.width/w,y:Math.max(0,T-pad)*img.height/h},
- {x:Math.min(w-1,R+pad)*img.width/w,y:Math.min(h-1,B+pad)*img.height/h},
- {x:Math.max(0,L-pad)*img.width/w,y:Math.min(h-1,B+pad)*img.height/h}];
+ if(lr.length<9||tb.length<9)return null;
+ const median=xs=>xs.sort((a,b)=>a-b)[Math.floor(xs.length/2)];
+ const l=median(lr.map(p=>p[1])),r=median(lr.map(p=>p[2]));
+ const t=median(tb.map(p=>p[1])),b=median(tb.map(p=>p[2]));
+ if(r-l<w*.45||b-t<h*.4)return null;
+ const goodLR=lr.filter(p=>Math.abs(p[1]-l)<w*.045&&Math.abs(p[2]-r)<w*.045);
+ const goodTB=tb.filter(p=>Math.abs(p[1]-t)<h*.06&&Math.abs(p[2]-b)<h*.06);
+ if(goodLR.length<lr.length*.65||goodTB.length<tb.length*.65)return null;
+ const line=(pts,idx)=>{
+  const n=pts.length,ax=pts.reduce((s,p)=>s+p[0],0)/n,ay=pts.reduce((s,p)=>s+p[idx],0)/n;
+  const den=pts.reduce((s,p)=>s+(p[0]-ax)**2,0);
+  const m=den?pts.reduce((s,p)=>s+(p[0]-ax)*(p[idx]-ay),0)/den:0;
+  return {m,b:ay-m*ax};
+ };
+ const L=line(goodLR,1),R=line(goodLR,2),T=line(goodTB,1),B=line(goodTB,2);
+ const intersect=(side,edge)=>{
+  const y=(edge.m*side.b+edge.b)/(1-edge.m*side.m);
+  return {x:side.m*y+side.b,y};
+ };
+ const q=[intersect(L,T),intersect(R,T),intersect(R,B),intersect(L,B)];
+ if(q.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))return null;
+ const cx=q.reduce((s,p)=>s+p.x,0)/4,cy=q.reduce((s,p)=>s+p.y,0)/4;
+ const pad=1.008;
+ return q.map(p=>({x:Math.max(0,Math.min(img.width-1,(cx+(p.x-cx)*pad)*img.width/w)),
+  y:Math.max(0,Math.min(img.height-1,(cy+(p.y-cy)*pad)*img.height/h))}));
 }
 function commercialColorSuggestion(src,ocrTexts){
  // Profilo visivo prudente: palette arancione e marchio SELEX/Famila nel testo OCR.
@@ -307,7 +336,7 @@ async function preparePhotoCrop(src){
   const corners=detectBrightCardBounds(cropImage)||detectCardCorners(cropImage);
   if(corners){
    const cx=corners.reduce((v,p)=>v+p.x,0)/4,cy=corners.reduce((v,p)=>v+p.y,0)/4;
-   const safeCorners=corners.map(p=>({x:Math.max(0,Math.min(cropImage.width-1,cx+(p.x-cx)*1.015)),y:Math.max(0,Math.min(cropImage.height-1,cy+(p.y-cy)*1.015))}));
+   const safeCorners=corners.map(p=>({x:Math.max(0,Math.min(cropImage.width-1,cx+(p.x-cx)*1.002)),y:Math.max(0,Math.min(cropImage.height-1,cy+(p.y-cy)*1.002))}));
    const corrected=rectifyCard(cropImage,safeCorners);
    pendingPhoto=corrected;cropImage=new Image();cropImage.src=corrected;await cropImage.decode();
    $('cropDetectionStatus').textContent='Quattro angoli individuati: prospettiva corretta automaticamente. Controlla il risultato.';
