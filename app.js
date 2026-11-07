@@ -5,7 +5,34 @@ function toast(t){$('toast').textContent=t;$('toast').style.display='block';setT
 function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'[]');cards=Array.isArray(v)?v:[]}catch{cards=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(cards));return true}catch{toast('Impossibile salvare: memoria del browser non disponibile');return false}}
 function show(id){stopCamera();for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;if(id==='home')render()}
-function render(){const root=$('cards');root.replaceChildren();const q=$('search').value.trim().toLocaleLowerCase('it');let matches=cards.filter(c=>c.name.toLocaleLowerCase('it').includes(q));$('empty').hidden=matches.length>0;for(const c of matches){const b=document.createElement('button');b.className='card';const label=document.createElement('span');const name=document.createElement('strong');name.textContent=c.name;const number=document.createElement('small');number.textContent=c.number;label.append(name,number);const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';b.append(label,arrow);b.onclick=()=>detail(c.id);root.append(b)}}
+let homeRenderId=0;
+function render(){
+ const root=$('cards');root.replaceChildren();
+ const q=$('search').value.trim().toLocaleLowerCase('it');
+ const matches=cards.filter(c=>c.name.toLocaleLowerCase('it').includes(q));
+ $('empty').hidden=matches.length>0;
+ const renderId=++homeRenderId;
+ for(const c of matches){
+  const b=document.createElement('button');b.type='button';b.className='card wallet-card';b.setAttribute('aria-label','Apri tessera '+c.name);
+  const visual=document.createElement('span');visual.className='wallet-visual';
+  const fallback=document.createElement('span');fallback.className='wallet-fallback';
+  const monogram=document.createElement('span');monogram.className='wallet-monogram';monogram.textContent=(c.name.trim()[0]||'T').toLocaleUpperCase('it');
+  const brand=document.createElement('span');brand.className='wallet-brand';brand.textContent=c.name;
+  const deco=document.createElement('span');deco.className='wallet-deco';deco.setAttribute('aria-hidden','true');
+  fallback.append(monogram,brand,deco);visual.append(fallback);
+  const info=document.createElement('span');info.className='wallet-info';
+  const name=document.createElement('strong');name.textContent=c.name;
+  const number=document.createElement('small');number.textContent=c.number;
+  const arrow=document.createElement('span');arrow.className='chevron';arrow.textContent='›';
+  info.append(name,number);b.append(visual,info,arrow);b.onclick=()=>detail(c.id);root.append(b);
+  // Foto già salvate in IndexedDB: non duplicarle in localStorage.
+  Promise.resolve().then(()=>TesseriaPhotos.get(c.id)).then(photo=>{
+   if(renderId!==homeRenderId||!b.isConnected||!photo)return;
+   const img=document.createElement('img');img.className='wallet-image';img.alt='Fronte della tessera '+c.name;img.loading='lazy';img.src=photo;
+   img.onload=()=>{if(renderId===homeRenderId&&b.isConnected){visual.replaceChildren(img);visual.classList.add('has-photo')}};
+  }).catch(()=>{});
+ }
+}
 async function openEditor(c=null){editId=c?.id||null;photoDraft=null;photoRemove=false;$('frontPhoto').value='';$('photoPreview').hidden=true;$('removePhoto').hidden=true;$('retryOcr').hidden=true;if(c){try{const p=await TesseriaPhotos.get(c.id);if(p){$('photoPreview').src=p;$('photoPreview').hidden=false;$('removePhoto').hidden=false}}catch(e){toast('Foto non disponibile: '+e.message)}}$('editorTitle').textContent=c?'Modifica tessera':'Nuova tessera';$('name').value=c?.name||'';$('number').value=c?.number||'';$('format').value=c?.format||'EAN13';$('scanMessage').textContent='';show('editor')}
 const eanL=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
 const eanG=['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
